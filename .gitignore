@@ -5,3 +5,5 @@ zig-out/
 # Added by cargo
 
 /target
+CLAUDE.md
+plan.md
