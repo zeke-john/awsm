@@ -1,4 +1,5 @@
 use crate::keys::{Focus, Mode, Service};
+use crate::ui::sidebar::Sidebar;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -6,6 +7,11 @@ pub enum Action {
     SwitchService(Service),
     SetMode(Mode),
     SetFocus(Focus),
+    ToggleFocus,
+    SidebarUp,
+    SidebarDown,
+    SelectService,
+    ToggleHelp,
     None,
 }
 
@@ -15,6 +21,8 @@ pub struct App {
     pub mode: Mode,
     pub active_service: Service,
     pub focus: Focus,
+    pub sidebar: Sidebar,
+    pub show_help: bool,
 }
 
 impl Default for App {
@@ -24,6 +32,8 @@ impl Default for App {
             mode: Mode::default(),
             active_service: Service::default(),
             focus: Focus::default(),
+            sidebar: Sidebar::default(),
+            show_help: false,
         }
     }
 }
@@ -43,6 +53,21 @@ impl App {
             Action::SwitchService(service) => self.active_service = service,
             Action::SetMode(mode) => self.mode = mode,
             Action::SetFocus(focus) => self.focus = focus,
+            Action::ToggleFocus => {
+                self.focus = match self.focus {
+                    Focus::Sidebar => Focus::Main,
+                    Focus::Main => Focus::Sidebar,
+                };
+            }
+            Action::SidebarUp => self.sidebar.move_up(),
+            Action::SidebarDown => self.sidebar.move_down(),
+            Action::SelectService => {
+                if let Some(service) = self.sidebar.selected_service() {
+                    self.active_service = service;
+                    self.focus = Focus::Main;
+                }
+            }
+            Action::ToggleHelp => self.show_help = !self.show_help,
             Action::None => {}
         }
     }

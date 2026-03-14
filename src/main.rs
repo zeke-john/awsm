@@ -19,6 +19,7 @@ use ratatui::Terminal;
 
 use app::{Action, App};
 use event::{Event, EventHandler};
+use keys::{Focus, Mode};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -43,11 +44,20 @@ async fn main() -> anyhow::Result<()> {
 
         match events.next().await {
             Some(Event::Key(key)) => {
-                let action = match (key.code, key.modifiers) {
-                    (KeyCode::Char('q'), _) => Action::Quit,
-                    (KeyCode::Char('c'), KeyModifiers::CONTROL) => Action::Quit,
-                    (KeyCode::Esc, _) => Action::Quit,
-                    _ => Action::None,
+                if app.show_help {
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
+                            app.update(Action::ToggleHelp);
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+
+                let action = match app.mode {
+                    Mode::Normal => handle_normal_key(key.code, key.modifiers, &app),
+                    Mode::Insert => Action::None,
+                    Mode::Command => Action::None,
                 };
                 app.update(action);
             }
@@ -61,4 +71,30 @@ async fn main() -> anyhow::Result<()> {
     execute!(io::stderr(), LeaveAlternateScreen, cursor::Show)?;
 
     Ok(())
+}
+
+fn handle_normal_key(code: KeyCode, modifiers: KeyModifiers, app: &App) -> Action {
+    match (code, modifiers) {
+        (KeyCode::Char('q'), _) => Action::Quit,
+        (KeyCode::Char('c'), KeyModifiers::CONTROL) => Action::Quit,
+        (KeyCode::Char('?'), _) => Action::ToggleHelp,
+        (KeyCode::Tab, _) => Action::ToggleFocus,
+        (KeyCode::Char('j'), _) | (KeyCode::Down, _) => match app.focus {
+            Focus::Sidebar => Action::SidebarDown,
+            Focus::Main => Action::None,
+        },
+        (KeyCode::Char('k'), _) | (KeyCode::Up, _) => match app.focus {
+            Focus::Sidebar => Action::SidebarUp,
+            Focus::Main => Action::None,
+        },
+        (KeyCode::Enter, _) => match app.focus {
+            Focus::Sidebar => Action::SelectService,
+            Focus::Main => Action::None,
+        },
+        (KeyCode::Esc, _) => match app.focus {
+            Focus::Main => Action::SetFocus(Focus::Sidebar),
+            Focus::Sidebar => Action::Quit,
+        },
+        _ => Action::None,
+    }
 }
