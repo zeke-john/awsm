@@ -11,15 +11,17 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph};
 
 use crate::app::{App, Screen};
+use crate::keys::Service;
+use crate::ui::services::ServiceComponent;
 
-pub fn render(app: &App, frame: &mut Frame) {
+pub fn render(app: &mut App, frame: &mut Frame) {
     match app.screen {
         Screen::ProfilePicker => render_profile_picker(app, frame),
         Screen::Main => render_main(app, frame),
     }
 }
 
-fn render_profile_picker(app: &App, frame: &mut Frame) {
+fn render_profile_picker(app: &mut App, frame: &mut Frame) {
     let area = frame.area();
     let profile_count = app.available_profiles.len() as u16;
     let list_height = profile_count + 2;
@@ -74,7 +76,7 @@ fn render_profile_picker(app: &App, frame: &mut Frame) {
     frame.render_stateful_widget(list, inner[1], &mut state);
 }
 
-fn render_main(app: &App, frame: &mut Frame) {
+fn render_main(app: &mut App, frame: &mut Frame) {
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(1)])
@@ -94,25 +96,36 @@ fn render_main(app: &App, frame: &mut Frame) {
         Style::default().fg(Color::DarkGray)
     };
 
+    let title = match app.active_service {
+        Service::S3 => format!(" {} ", app.s3_view.breadcrumb()),
+        _ => format!(" {} ", app.active_service.label()),
+    };
+
     let main_block = Block::default()
-        .title(format!(" {} ", app.active_service.label()))
+        .title(title)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(main_border);
 
-    let main_text = if app.aws.is_some() {
-        "  Ready"
-    } else {
-        "  Connecting to AWS..."
-    };
+    let inner = main_block.inner(body[1]);
+    frame.render_widget(main_block, body[1]);
 
-    let placeholder = Paragraph::new(Span::styled(
-        main_text,
-        Style::default().fg(Color::DarkGray),
-    ))
-    .block(main_block);
-
-    frame.render_widget(placeholder, body[1]);
+    match app.active_service {
+        Service::S3 => {
+            app.s3_view.render(frame, inner);
+        }
+        _ => {
+            let placeholder = Paragraph::new(Span::styled(
+                if app.aws.is_some() {
+                    "  Not yet implemented"
+                } else {
+                    "  Connecting to AWS..."
+                },
+                Style::default().fg(Color::DarkGray),
+            ));
+            frame.render_widget(placeholder, inner);
+        }
+    }
 
     statusbar::StatusBar::render(frame, outer[1], app);
 

@@ -1,5 +1,6 @@
 use crate::aws::AwsClients;
 use crate::keys::{Focus, Mode, Service};
+use crate::ui::services::s3::S3View;
 use crate::ui::sidebar::Sidebar;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,6 +17,11 @@ pub enum Action {
     ProfileUp,
     ProfileDown,
     ProfileSelect,
+    ServiceEnter,
+    ServiceBack,
+    S3Download,
+    S3CopyUri,
+    S3CopyArn,
     None,
 }
 
@@ -39,6 +45,7 @@ pub struct App {
     pub profile: String,
     pub available_profiles: Vec<String>,
     pub profile_selected: usize,
+    pub s3_view: S3View,
 }
 
 impl App {
@@ -70,6 +77,7 @@ impl App {
             profile,
             available_profiles: profiles,
             profile_selected,
+            s3_view: S3View::default(),
         }
     }
 
@@ -121,7 +129,9 @@ impl App {
                     self.screen = Screen::Main;
                 }
             }
-            Action::None => {}
+            Action::ServiceEnter | Action::ServiceBack
+            | Action::S3Download | Action::S3CopyUri | Action::S3CopyArn
+            | Action::None => {}
         }
     }
 }

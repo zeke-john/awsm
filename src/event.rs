@@ -22,7 +22,10 @@ impl EventHandler {
         std::thread::spawn(move || {
             loop {
                 match event::read() {
-                    Ok(CrosstermEvent::Key(key)) if key.kind == KeyEventKind::Press => {
+                    Ok(CrosstermEvent::Key(key))
+                        if key.kind == KeyEventKind::Press
+                            || key.kind == KeyEventKind::Repeat =>
+                    {
                         if event_tx.send(Event::Key(key)).is_err() {
                             break;
                         }
@@ -54,5 +57,13 @@ impl EventHandler {
 
     pub async fn next(&mut self) -> Option<Event> {
         self.rx.recv().await
+    }
+
+    pub fn drain_keys(&mut self) -> Vec<Event> {
+        let mut events = Vec::new();
+        while let Ok(evt) = self.rx.try_recv() {
+            events.push(evt);
+        }
+        events
     }
 }

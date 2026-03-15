@@ -12,6 +12,6 @@ use crate::app::Action;
 
 pub trait ServiceComponent {
     fn handle_key(&mut self, key: KeyEvent) -> Option<Action>;
-    fn render(&self, frame: &mut Frame, area: Rect);
+    fn render(&mut self, frame: &mut Frame, area: Rect);
     fn name(&self) -> &'static str;
 }
