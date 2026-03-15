@@ -50,6 +50,7 @@ pub struct DynamoDbView {
     sort_ascending: bool,
     col_width_override: usize,
     last_visible_scroll_cols: usize,
+    items_list_state: ListState,
     // pagination
     all_pages: Vec<ScanResult>,
     current_page: usize,
@@ -85,6 +86,7 @@ impl Default for DynamoDbView {
             sort_ascending: true,
             col_width_override: 0,
             last_visible_scroll_cols: 4,
+            items_list_state: ListState::default(),
             all_pages: Vec::new(),
             current_page: 0,
         }
@@ -121,6 +123,7 @@ impl DynamoDbView {
         self.items_result = None;
         self.all_pages.clear();
         self.current_page = 0;
+        *self.items_list_state.offset_mut() = 0;
         self.query_mode = false;
         self.query_pk_value.clear();
         self.query_sk_value.clear();
@@ -143,6 +146,7 @@ impl DynamoDbView {
         self.error = None;
         self.selected = 0;
         self.col_offset = 0;
+        *self.items_list_state.offset_mut() = 0;
     }
 
     pub fn add_page(&mut self, result: ScanResult) {
@@ -158,6 +162,7 @@ impl DynamoDbView {
         self.error = None;
         self.selected = 0;
         self.col_offset = 0;
+        *self.items_list_state.offset_mut() = 0;
     }
 
     pub fn next_page(&mut self) {
@@ -166,6 +171,7 @@ impl DynamoDbView {
             self.items_result = Some(self.all_pages[self.current_page].clone());
             self.selected = 0;
             self.col_offset = 0;
+            *self.items_list_state.offset_mut() = 0;
         }
     }
 
@@ -175,6 +181,7 @@ impl DynamoDbView {
             self.items_result = Some(self.all_pages[self.current_page].clone());
             self.selected = 0;
             self.col_offset = 0;
+            *self.items_list_state.offset_mut() = 0;
         }
     }
 
@@ -1114,8 +1121,8 @@ impl DynamoDbView {
         }
 
         let list = List::new(items_list);
-        let mut state = ListState::default().with_selected(Some(2 + self.selected * 2));
-        frame.render_stateful_widget(list, list_area, &mut state);
+        self.items_list_state.select(Some(2 + self.selected * 2));
+        frame.render_stateful_widget(list, list_area, &mut self.items_list_state);
 
         let clear = Paragraph::new(Span::styled(
             " ".repeat(info_area.width as usize),
