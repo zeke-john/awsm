@@ -7,7 +7,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 pub fn render_help(frame: &mut Frame, scroll: &mut u16) {
     let full = frame.area();
     let width = 48u16.min(full.width);
-    let height = 34u16.min(full.height.saturating_sub(2));
+    let height = 40u16.min(full.height.saturating_sub(2));
 
     let area = Rect {
         x: full.width.saturating_sub(width).saturating_sub(1),
@@ -120,9 +120,19 @@ pub fn render_help(frame: &mut Frame, scroll: &mut u16) {
         Line::from(""),
         Line::from(Span::styled(" S3", header_style)),
         help_line(" d", "download file", key_style, arrow_style, desc_style),
-        help_line(" r", "retry on error", key_style, arrow_style, desc_style),
+        Line::from(""),
+        Line::from(Span::styled(" Secrets Manager", header_style)),
+        help_line(
+            " s",
+            "reveal / hide value",
+            key_style,
+            arrow_style,
+            desc_style,
+        ),
         Line::from(""),
         Line::from(Span::styled(" General", header_style)),
+        help_line(" r", "retry on error", key_style, arrow_style, desc_style),
+        help_line(" :q", "quit", key_style, arrow_style, desc_style),
         help_line(" Ctrl-c", "quit", key_style, arrow_style, desc_style),
         help_line(" ?", "toggle help", key_style, arrow_style, desc_style),
         Line::from(""),

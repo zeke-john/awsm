@@ -10,10 +10,25 @@ pub struct StatusBar;
 
 impl StatusBar {
     pub fn render(frame: &mut Frame, area: Rect, app: &App) {
+        // Command mode: show command line instead of normal statusbar
+        if app.mode == crate::keys::Mode::Command {
+            let cmd_line = Paragraph::new(Line::from(vec![
+                Span::styled(":", Style::default().fg(Color::White)),
+                Span::styled(
+                    app.command_input.as_str(),
+                    Style::default().fg(Color::White),
+                ),
+                Span::styled("_", Style::default().fg(Color::Gray)),
+            ]));
+            frame.render_widget(cmd_line, area);
+            return;
+        }
+
         let is_editing = match app.active_service {
             crate::keys::Service::S3 => app.s3_view.is_editing(),
             crate::keys::Service::DynamoDB => app.dynamodb_view.is_editing(),
             crate::keys::Service::Lambda => app.lambda_view.is_editing(),
+            crate::keys::Service::SecretsManager => app.secrets_view.is_editing(),
             _ => false,
         };
 
@@ -80,7 +95,7 @@ impl StatusBar {
         let right = Paragraph::new(Line::from(vec![
             Span::styled("? ", Style::default().fg(Color::DarkGray)),
             Span::styled("help  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("^c ", Style::default().fg(Color::DarkGray)),
+            Span::styled(":q ", Style::default().fg(Color::DarkGray)),
             Span::styled("quit ", Style::default().fg(Color::DarkGray)),
         ]))
         .alignment(ratatui::layout::Alignment::Right);

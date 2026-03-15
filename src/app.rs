@@ -3,6 +3,7 @@ use crate::keys::{Focus, Mode, Service};
 use crate::ui::services::dynamodb::DynamoDbView;
 use crate::ui::services::lambda::LambdaView;
 use crate::ui::services::s3::S3View;
+use crate::ui::services::secrets::SecretsManagerView;
 use crate::ui::sidebar::Sidebar;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,6 +57,7 @@ pub struct App {
     pub s3_view: S3View,
     pub dynamodb_view: DynamoDbView,
     pub lambda_view: LambdaView,
+    pub secrets_view: SecretsManagerView,
     pub command_input: String,
 }
 
@@ -93,6 +95,7 @@ impl App {
             s3_view: S3View::default(),
             dynamodb_view: DynamoDbView::default(),
             lambda_view: LambdaView::default(),
+            secrets_view: SecretsManagerView::default(),
             command_input: String::new(),
         }
     }

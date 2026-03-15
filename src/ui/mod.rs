@@ -105,6 +105,7 @@ fn render_main(app: &mut App, frame: &mut Frame) {
         Service::S3 => format!(" {} ", app.s3_view.breadcrumb()),
         Service::DynamoDB => format!(" {} ", app.dynamodb_view.breadcrumb()),
         Service::Lambda => format!(" {} ", app.lambda_view.breadcrumb()),
+        Service::SecretsManager => format!(" {} ", app.secrets_view.breadcrumb()),
         _ => format!(" {} ", app.active_service.label()),
     };
 
@@ -126,6 +127,9 @@ fn render_main(app: &mut App, frame: &mut Frame) {
         }
         Service::Lambda => {
             app.lambda_view.render(frame, inner);
+        }
+        Service::SecretsManager => {
+            app.secrets_view.render(frame, inner);
         }
         _ => {
             let placeholder = Paragraph::new(Span::styled(

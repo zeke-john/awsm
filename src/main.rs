@@ -70,6 +70,36 @@ async fn main() -> anyhow::Result<()> {
                         }
                     }
                     Screen::Main => {
+                        // Command mode: intercept all input
+                        if app.mode == Mode::Command {
+                            match key.code {
+                                KeyCode::Esc => {
+                                    app.mode = Mode::Normal;
+                                    app.command_input.clear();
+                                }
+                                KeyCode::Enter => {
+                                    let cmd = app.command_input.trim().to_string();
+                                    app.mode = Mode::Normal;
+                                    app.command_input.clear();
+                                    if cmd == "q" || cmd == "quit" {
+                                        app.quit();
+                                    }
+                                }
+                                KeyCode::Backspace => {
+                                    if app.command_input.is_empty() {
+                                        app.mode = Mode::Normal;
+                                    } else {
+                                        app.command_input.pop();
+                                    }
+                                }
+                                KeyCode::Char(c) => {
+                                    app.command_input.push(c);
+                                }
+                                _ => {}
+                            }
+                            continue;
+                        }
+
                         if app.show_help {
                             match key.code {
                                 KeyCode::Esc | KeyCode::Char('?') => {
@@ -99,6 +129,7 @@ async fn main() -> anyhow::Result<()> {
                                 (KeyCode::Char('?'), _) => Some(Action::ToggleHelp),
                                 (KeyCode::Tab, _) => Some(Action::ToggleFocus),
                                 (KeyCode::Char('b'), KeyModifiers::CONTROL) => Some(Action::ToggleSidebar),
+                                (KeyCode::Char(':'), _) => Some(Action::SetMode(Mode::Command)),
                                 _ => None,
                             };
 
@@ -117,6 +148,7 @@ async fn main() -> anyhow::Result<()> {
                                 Service::S3 => app.s3_view.handle_key(key),
                                 Service::DynamoDB => app.dynamodb_view.handle_key(key),
                                 Service::Lambda => app.lambda_view.handle_key(key),
+                                Service::SecretsManager => app.secrets_view.handle_key(key),
                                 _ => None,
                             };
 
@@ -127,6 +159,7 @@ async fn main() -> anyhow::Result<()> {
                                             Service::S3 => { app.s3_view.handle_key(qk); }
                                             Service::DynamoDB => { app.dynamodb_view.handle_key(qk); }
                                             Service::Lambda => { app.lambda_view.handle_key(qk); }
+                                            Service::SecretsManager => { app.secrets_view.handle_key(qk); }
                                             _ => {}
                                         }
                                     }
@@ -161,7 +194,11 @@ async fn main() -> anyhow::Result<()> {
                                         handle_lambda_enter(&mut app).await;
                                     }
                                     (Service::Lambda, Action::ServiceBack) => {
-                                        // back from detail just resets state locally, no reload needed
+                                    }
+                                    (Service::SecretsManager, Action::ServiceEnter) => {
+                                        handle_secrets_enter(&mut app).await;
+                                    }
+                                    (Service::SecretsManager, Action::ServiceBack) => {
                                     }
                                     _ => {
                                         app.update(action);
@@ -226,6 +263,37 @@ async fn load_service_data(app: &mut App) {
                     match aws::lambda::list_functions(&aws.lambda).await {
                         Ok(functions) => app.lambda_view.set_functions(functions),
                         Err(e) => app.lambda_view.set_error(e),
+                    }
+                }
+            }
+        }
+        Service::SecretsManager => {
+            if app.secrets_view.needs_secret_load() {
+                if let Some(ref aws) = app.aws {
+                    match aws::secrets::list_secrets(&aws.secrets).await {
+                        Ok(secrets) => app.secrets_view.set_secrets(secrets),
+                        Err(e) => app.secrets_view.set_error(e),
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+async fn handle_secrets_enter(app: &mut App) {
+    if app.secrets_view.needs_secret_load() {
+        return;
+    }
+
+    match app.secrets_view.screen_type() {
+        "list" => {
+            if let Some(secret) = app.secrets_view.selected_secret().cloned() {
+                app.secrets_view.enter_detail();
+                if let Some(ref aws) = app.aws {
+                    match aws::secrets::get_secret_detail(&aws.secrets, &secret.name).await {
+                        Ok(detail) => app.secrets_view.set_detail(detail),
+                        Err(e) => app.secrets_view.set_error(e),
                     }
                 }
             }
