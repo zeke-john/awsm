@@ -1,6 +1,7 @@
 use crate::aws::AwsClients;
 use crate::keys::{Focus, Mode, Service};
 use crate::ui::services::dynamodb::DynamoDbView;
+use crate::ui::services::lambda::LambdaView;
 use crate::ui::services::s3::S3View;
 use crate::ui::sidebar::Sidebar;
 
@@ -54,6 +55,7 @@ pub struct App {
     pub profile_selected: usize,
     pub s3_view: S3View,
     pub dynamodb_view: DynamoDbView,
+    pub lambda_view: LambdaView,
     pub command_input: String,
 }
 
@@ -90,6 +92,7 @@ impl App {
             profile_selected,
             s3_view: S3View::default(),
             dynamodb_view: DynamoDbView::default(),
+            lambda_view: LambdaView::default(),
             command_input: String::new(),
         }
     }

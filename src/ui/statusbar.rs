@@ -13,6 +13,7 @@ impl StatusBar {
         let is_editing = match app.active_service {
             crate::keys::Service::S3 => app.s3_view.is_editing(),
             crate::keys::Service::DynamoDB => app.dynamodb_view.is_editing(),
+            crate::keys::Service::Lambda => app.lambda_view.is_editing(),
             _ => false,
         };
 

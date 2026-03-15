@@ -116,6 +116,7 @@ async fn main() -> anyhow::Result<()> {
                             let service_action = match app.active_service {
                                 Service::S3 => app.s3_view.handle_key(key),
                                 Service::DynamoDB => app.dynamodb_view.handle_key(key),
+                                Service::Lambda => app.lambda_view.handle_key(key),
                                 _ => None,
                             };
 
@@ -125,6 +126,7 @@ async fn main() -> anyhow::Result<()> {
                                         match app.active_service {
                                             Service::S3 => { app.s3_view.handle_key(qk); }
                                             Service::DynamoDB => { app.dynamodb_view.handle_key(qk); }
+                                            Service::Lambda => { app.lambda_view.handle_key(qk); }
                                             _ => {}
                                         }
                                     }
@@ -154,6 +156,12 @@ async fn main() -> anyhow::Result<()> {
                                     }
                                     (Service::DynamoDB, Action::ServiceBack) => {
                                         handle_ddb_back(&mut app).await;
+                                    }
+                                    (Service::Lambda, Action::ServiceEnter) => {
+                                        handle_lambda_enter(&mut app).await;
+                                    }
+                                    (Service::Lambda, Action::ServiceBack) => {
+                                        // back from detail just resets state locally, no reload needed
                                     }
                                     _ => {
                                         app.update(action);
@@ -208,6 +216,37 @@ async fn load_service_data(app: &mut App) {
                     match aws::dynamodb::list_tables(&aws.dynamodb).await {
                         Ok(tables) => app.dynamodb_view.set_tables(tables),
                         Err(e) => app.dynamodb_view.set_error(e),
+                    }
+                }
+            }
+        }
+        Service::Lambda => {
+            if app.lambda_view.needs_function_load() {
+                if let Some(ref aws) = app.aws {
+                    match aws::lambda::list_functions(&aws.lambda).await {
+                        Ok(functions) => app.lambda_view.set_functions(functions),
+                        Err(e) => app.lambda_view.set_error(e),
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+async fn handle_lambda_enter(app: &mut App) {
+    if app.lambda_view.needs_function_load() {
+        return;
+    }
+
+    match app.lambda_view.screen_type() {
+        "functions" => {
+            if let Some(func) = app.lambda_view.selected_function().cloned() {
+                app.lambda_view.enter_detail();
+                if let Some(ref aws) = app.aws {
+                    match aws::lambda::get_function_detail(&aws.lambda, &func.name).await {
+                        Ok(detail) => app.lambda_view.set_detail(detail),
+                        Err(e) => app.lambda_view.set_error(e),
                     }
                 }
             }
