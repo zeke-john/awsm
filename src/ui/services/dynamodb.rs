@@ -51,6 +51,9 @@ pub struct DynamoDbView {
     col_width_override: usize,
     last_visible_scroll_cols: usize,
     items_list_state: ListState,
+    // index picker
+    index_picker_open: bool,
+    index_picker_selected: usize,
     // pagination
     all_pages: Vec<ScanResult>,
     current_page: usize,
@@ -87,6 +90,8 @@ impl Default for DynamoDbView {
             col_width_override: 0,
             last_visible_scroll_cols: 4,
             items_list_state: ListState::default(),
+            index_picker_open: false,
+            index_picker_selected: 0,
             all_pages: Vec::new(),
             current_page: 0,
         }
@@ -509,6 +514,47 @@ impl ServiceComponent for DynamoDbView {
             return Some(Action::None);
         }
 
+        if self.index_picker_open {
+            let index_count = 1 + self.table_detail.as_ref()
+                .map(|d| d.indexes.len()).unwrap_or(0);
+            match key.code {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    if self.index_picker_selected + 1 < index_count {
+                        self.index_picker_selected += 1;
+                    }
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    if self.index_picker_selected > 0 {
+                        self.index_picker_selected -= 1;
+                    }
+                }
+                KeyCode::Enter => {
+                    if self.index_picker_selected == 0 {
+                        self.active_index = None;
+                    } else if let Some(ref detail) = self.table_detail {
+                        if let Some(idx) = detail.indexes.get(self.index_picker_selected - 1) {
+                            self.active_index = Some(idx.name.clone());
+                        }
+                    }
+                    self.index_picker_open = false;
+                    self.loading = true;
+                    self.all_pages.clear();
+                    self.current_page = 0;
+                    *self.items_list_state.offset_mut() = 0;
+                    self.items_result = None;
+                    self.selected = 0;
+                    self.sort_col_idx = None;
+                    self.filter.clear();
+                    return Some(Action::DdbSwitchIndex);
+                }
+                KeyCode::Esc | KeyCode::Char('i') => {
+                    self.index_picker_open = false;
+                }
+                _ => {}
+            }
+            return Some(Action::None);
+        }
+
         match key.code {
             KeyCode::Char('j') | KeyCode::Down => {
                 self.pending_g = false;
@@ -646,6 +692,21 @@ impl ServiceComponent for DynamoDbView {
             KeyCode::Char('/') => {
                 self.filtering = true;
                 self.filter.clear();
+            }
+            KeyCode::Char('i') => {
+                if self.screen == DdbScreen::Items && self.table_detail.is_some() {
+                    self.index_picker_open = true;
+                    let current_idx = self.active_index.as_deref();
+                    self.index_picker_selected = match current_idx {
+                        None => 0,
+                        Some(name) => {
+                            self.table_detail.as_ref()
+                                .and_then(|d| d.indexes.iter().position(|i| i.name == name))
+                                .map(|pos| pos + 1)
+                                .unwrap_or(0)
+                        }
+                    };
+                }
             }
             KeyCode::Char('n') => {
                 if self.screen == DdbScreen::Items && self.has_next_page() {
@@ -952,11 +1013,14 @@ impl DynamoDbView {
         let used = scrollable_cols.len() * actual_col_width + scrollable_cols.len();
         let last_col_extra = remaining_w.saturating_sub(used);
 
+        let header_bg = Color::Rgb(50, 40, 30);
         let header_style = Style::default()
-            .fg(Color::DarkGray)
+            .fg(Color::Rgb(180, 160, 130))
+            .bg(header_bg)
             .add_modifier(Modifier::BOLD);
         let sort_header = Style::default()
             .fg(Color::Cyan)
+            .bg(header_bg)
             .add_modifier(Modifier::BOLD);
 
         let has_more_right = scroll_end < cols.len();
@@ -1013,10 +1077,11 @@ impl DynamoDbView {
         }
 
         if has_more_right {
-            hdr_spans.push(Span::styled("›", Style::default().fg(Color::DarkGray)));
+            hdr_spans.push(Span::styled("›", Style::default().fg(Color::DarkGray).bg(header_bg)));
         }
 
-        let mut items_list: Vec<ListItem> = vec![ListItem::new(Line::from(hdr_spans))];
+        // Fill rest of header line with header bg
+        let hdr_line = Line::from(hdr_spans);
 
         // Header separator line
         let mut sep_line_spans = vec![
@@ -1034,7 +1099,36 @@ impl DynamoDbView {
                 sep_line_spans.push(Span::styled("┼", row_line_style));
             }
         }
-        items_list.push(ListItem::new(Line::from(sep_line_spans)));
+        let sep_line = Line::from(sep_line_spans);
+
+        // Render sticky header (2 rows: header + separator)
+        let header_area = Rect {
+            x: list_area.x,
+            y: list_area.y,
+            width: list_area.width,
+            height: 1,
+        };
+        let sep_area = Rect {
+            x: list_area.x,
+            y: list_area.y + 1,
+            width: list_area.width,
+            height: 1,
+        };
+        // Fill header bg across full width
+        let bg_fill = Paragraph::new("").style(Style::default().bg(header_bg));
+        frame.render_widget(bg_fill, header_area);
+        frame.render_widget(Paragraph::new(hdr_line), header_area);
+        frame.render_widget(Paragraph::new(sep_line), sep_area);
+
+        // Data area starts below header
+        let data_area = Rect {
+            x: list_area.x,
+            y: list_area.y + 2,
+            width: list_area.width,
+            height: list_area.height.saturating_sub(2),
+        };
+
+        let mut items_list: Vec<ListItem> = Vec::new();
 
         for (i, item) in filtered.iter().enumerate() {
             let is_selected = i == self.selected;
@@ -1099,8 +1193,6 @@ impl DynamoDbView {
                 }
             }
 
-            items_list.push(ListItem::new(Line::from(row_spans)));
-
             // Row separator (thin line)
             let mut rsep_spans = vec![
                 Span::styled(format!(" {}", "─".repeat(sticky_width + 1)), row_line_style),
@@ -1117,12 +1209,17 @@ impl DynamoDbView {
                     rsep_spans.push(Span::styled("┼", row_line_style));
                 }
             }
-            items_list.push(ListItem::new(Line::from(rsep_spans)));
+
+            // Combine data row + separator into one ListItem so scrolling never splits them
+            items_list.push(ListItem::new(vec![
+                Line::from(row_spans),
+                Line::from(rsep_spans),
+            ]));
         }
 
         let list = List::new(items_list);
-        self.items_list_state.select(Some(2 + self.selected * 2));
-        frame.render_stateful_widget(list, list_area, &mut self.items_list_state);
+        self.items_list_state.select(Some(self.selected));
+        frame.render_stateful_widget(list, data_area, &mut self.items_list_state);
 
         let clear = Paragraph::new(Span::styled(
             " ".repeat(info_area.width as usize),
@@ -1136,19 +1233,48 @@ impl DynamoDbView {
         let mut info_spans = Vec::new();
 
         if let Some(ref detail) = self.table_detail {
+            let (pk, pk_type, sk, sk_type, item_count) =
+                if let Some(ref idx_name) = self.active_index {
+                    if let Some(idx) = detail.indexes.iter().find(|i| &i.name == idx_name) {
+                        (
+                            idx.partition_key.as_str(),
+                            idx.partition_key_type.as_str(),
+                            idx.sort_key.as_deref(),
+                            idx.sort_key_type.as_deref(),
+                            idx.item_count,
+                        )
+                    } else {
+                        (
+                            detail.partition_key.as_str(),
+                            detail.partition_key_type.as_str(),
+                            detail.sort_key.as_deref(),
+                            detail.sort_key_type.as_deref(),
+                            detail.item_count,
+                        )
+                    }
+                } else {
+                    (
+                        detail.partition_key.as_str(),
+                        detail.partition_key_type.as_str(),
+                        detail.sort_key.as_deref(),
+                        detail.sort_key_type.as_deref(),
+                        detail.item_count,
+                    )
+                };
+
             info_spans.push(Span::styled(
-                format!(" {}:{}", detail.partition_key, detail.partition_key_type),
+                format!(" {}:{}", pk, pk_type),
                 orange,
             ));
-            if let Some(ref sk) = detail.sort_key {
-                let sk_type = detail.sort_key_type.as_deref().unwrap_or("S");
-                info_spans.push(Span::styled(format!(" {}:{}", sk, sk_type), orange));
+            if let Some(sk_name) = sk {
+                let skt = sk_type.unwrap_or("S");
+                info_spans.push(Span::styled(format!(" {}:{}", sk_name, skt), orange));
             }
             info_spans.push(Span::styled(" │ ", sep_style));
             info_spans.push(Span::styled(&detail.billing_mode, orange));
             info_spans.push(Span::styled(" │ ", sep_style));
             info_spans.push(Span::styled(
-                format!("~{} total", format_number(detail.item_count)),
+                format!("~{} total", format_number(item_count)),
                 orange,
             ));
         }
@@ -1184,6 +1310,100 @@ impl DynamoDbView {
         if self.filtering {
             self.render_filter(frame, info_area);
         }
+
+        if self.index_picker_open {
+            self.render_index_picker(frame, list_area);
+        }
+    }
+
+    fn render_index_picker(&self, frame: &mut Frame, area: Rect) {
+        let detail = match &self.table_detail {
+            Some(d) => d,
+            None => return,
+        };
+
+        let index_count = 1 + detail.indexes.len();
+        let picker_height = (index_count as u16 + 2).min(area.height); // +2 for borders
+        let picker_width = 50u16.min(area.width.saturating_sub(4));
+        let x = area.x + (area.width.saturating_sub(picker_width)) / 2;
+        let y = area.y + 1;
+
+        let picker_area = Rect {
+            x,
+            y,
+            width: picker_width,
+            height: picker_height,
+        };
+
+        frame.render_widget(ratatui::widgets::Clear, picker_area);
+
+        let is_active = |idx: usize| -> bool {
+            if idx == 0 {
+                self.active_index.is_none()
+            } else {
+                self.active_index.as_deref() == detail.indexes.get(idx - 1).map(|i| i.name.as_str())
+            }
+        };
+
+        let mut items: Vec<ListItem> = Vec::new();
+
+        // Table (Primary)
+        let pk_info = format!("{}:{}", detail.partition_key, detail.partition_key_type);
+        let sk_info = detail.sort_key.as_ref().map(|sk| {
+            let sk_type = detail.sort_key_type.as_deref().unwrap_or("S");
+            format!(" {}:{}", sk, sk_type)
+        }).unwrap_or_default();
+        let marker = if is_active(0) { "● " } else { "  " };
+        let label = format!("{}Table (Primary)", marker);
+        let keys = format!("{}{}", pk_info, sk_info);
+        let style = if self.index_picker_selected == 0 {
+            Style::default().fg(Color::White).bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+        } else if is_active(0) {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default().fg(Color::Gray)
+        };
+        let inner_w = picker_width.saturating_sub(2) as usize;
+        let keys_w = inner_w.saturating_sub(label.len()).saturating_sub(1);
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled(format!(" {:<pad$}", label, pad = inner_w - keys_w - 1), style),
+            Span::styled(format!("{:>width$} ", keys, width = keys_w), style),
+        ])));
+
+        // GSIs
+        for (i, idx) in detail.indexes.iter().enumerate() {
+            let row_idx = i + 1;
+            let marker = if is_active(row_idx) { "● " } else { "  " };
+            let label = format!("{}{}", marker, idx.name);
+            let pk_info = format!("{}:{}", idx.partition_key, idx.partition_key_type);
+            let sk_info = idx.sort_key.as_ref().map(|sk| {
+                let sk_type = idx.sort_key_type.as_deref().unwrap_or("S");
+                format!(" {}:{}", sk, sk_type)
+            }).unwrap_or_default();
+            let keys = format!("{}{}", pk_info, sk_info);
+            let style = if self.index_picker_selected == row_idx {
+                Style::default().fg(Color::White).bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+            } else if is_active(row_idx) {
+                Style::default().fg(Color::Cyan)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+            let keys_w = inner_w.saturating_sub(label.len()).saturating_sub(1);
+            items.push(ListItem::new(Line::from(vec![
+                Span::styled(format!(" {:<pad$}", label, pad = inner_w - keys_w - 1), style),
+                Span::styled(format!("{:>width$} ", keys, width = keys_w), style),
+            ])));
+        }
+
+        let block = ratatui::widgets::Block::default()
+            .title(" Select Index ")
+            .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
+            .borders(ratatui::widgets::Borders::ALL)
+            .border_style(Style::default().fg(Color::Rgb(100, 100, 100)))
+            .style(Style::default().bg(Color::Rgb(30, 30, 40)));
+
+        let list = List::new(items).block(block);
+        frame.render_widget(list, picker_area);
     }
 
     fn render_detail(&mut self, frame: &mut Frame, area: Rect) {

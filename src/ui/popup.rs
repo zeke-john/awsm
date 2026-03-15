@@ -7,7 +7,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 pub fn render_help(frame: &mut Frame, scroll: &mut u16) {
     let full = frame.area();
     let width = 48u16.min(full.width);
-    let height = 24u16.min(full.height.saturating_sub(2));
+    let height = 30u16.min(full.height.saturating_sub(2));
 
     let area = Rect {
         x: full.width.saturating_sub(width).saturating_sub(1),
@@ -60,11 +60,16 @@ pub fn render_help(frame: &mut Frame, scroll: &mut u16) {
         help_line(" s / S", "sort col right / left", key_style, arrow_style, desc_style),
         help_line(" x", "toggle sort asc/desc", key_style, arrow_style, desc_style),
         Line::from(""),
+        Line::from(Span::styled(" DynamoDB", header_style)),
+        help_line(" n / N", "next / prev page", key_style, arrow_style, desc_style),
+        help_line(" i", "switch index", key_style, arrow_style, desc_style),
+        help_line(" l / h", "scroll columns", key_style, arrow_style, desc_style),
+        help_line(" + / -", "resize columns", key_style, arrow_style, desc_style),
+        help_line(" 0", "reset column width", key_style, arrow_style, desc_style),
+        Line::from(""),
         Line::from(Span::styled(" Actions", header_style)),
         help_line(" d", "download file (S3)", key_style, arrow_style, desc_style),
         help_line(" r", "retry on error", key_style, arrow_style, desc_style),
-        help_line(" + / -", "resize columns", key_style, arrow_style, desc_style),
-        help_line(" 0", "reset column width", key_style, arrow_style, desc_style),
         Line::from(""),
         Line::from(Span::styled(" General", header_style)),
         help_line(" q", "quit", key_style, arrow_style, desc_style),
