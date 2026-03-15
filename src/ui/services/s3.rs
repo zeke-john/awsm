@@ -16,6 +16,35 @@ enum S3Screen {
     Detail,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SortColumn {
+    Name,
+    Size,
+    Modified,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SortDir {
+    Asc,
+    Desc,
+}
+
+impl SortDir {
+    fn toggle(&self) -> Self {
+        match self {
+            SortDir::Asc => SortDir::Desc,
+            SortDir::Desc => SortDir::Asc,
+        }
+    }
+
+    fn arrow(&self) -> &str {
+        match self {
+            SortDir::Asc => "▲",
+            SortDir::Desc => "▼",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct S3View {
     screen: S3Screen,
@@ -34,6 +63,8 @@ pub struct S3View {
     pub status_msg: Option<String>,
     pending_g: bool,
     detail_total_lines: u16,
+    sort_column: SortColumn,
+    sort_dir: SortDir,
 }
 
 impl Default for S3View {
@@ -55,6 +86,8 @@ impl Default for S3View {
             status_msg: None,
             pending_g: false,
             detail_total_lines: 0,
+            sort_column: SortColumn::Name,
+            sort_dir: SortDir::Asc,
         }
     }
 }
@@ -91,6 +124,8 @@ impl S3View {
         self.screen = S3Screen::Objects;
         self.selected = 0;
         self.loading = true;
+        self.filter.clear();
+        self.filtering = false;
     }
 
     pub fn enter_detail(&mut self) {
@@ -99,6 +134,8 @@ impl S3View {
         self.detail_scroll = 0;
         self.loading = true;
         self.status_msg = None;
+        self.filter.clear();
+        self.filtering = false;
     }
 
     pub fn set_detail(&mut self, detail: ObjectDetail) {
@@ -112,6 +149,8 @@ impl S3View {
         self.prefix = prefix;
         self.selected = 0;
         self.loading = true;
+        self.filter.clear();
+        self.filtering = false;
     }
 
     pub fn go_back(&mut self) -> bool {
@@ -120,12 +159,14 @@ impl S3View {
             self.filter.clear();
             return true;
         }
+        self.filter.clear();
+        self.filtering = false;
         match self.screen {
             S3Screen::Detail => {
                 self.screen = S3Screen::Objects;
                 self.detail = None;
                 self.loading = false;
-                return true;
+                true
             }
             S3Screen::Objects => {
                 if let Some(prev) = self.prefix_stack.pop() {
@@ -171,7 +212,7 @@ impl S3View {
     }
 
     fn filtered_buckets(&self) -> Vec<&BucketInfo> {
-        if self.filter.is_empty() {
+        let mut result: Vec<&BucketInfo> = if self.filter.is_empty() {
             self.buckets.iter().collect()
         } else {
             let f = self.filter.to_lowercase();
@@ -179,11 +220,22 @@ impl S3View {
                 .iter()
                 .filter(|b| b.name.to_lowercase().contains(&f))
                 .collect()
+        };
+
+        match self.sort_column {
+            SortColumn::Name => result.sort_by(|a, b| a.name.cmp(&b.name)),
+            SortColumn::Modified | SortColumn::Size => {
+                result.sort_by(|a, b| a.created.cmp(&b.created));
+            }
         }
+        if self.sort_dir == SortDir::Desc {
+            result.reverse();
+        }
+        result
     }
 
     fn filtered_objects(&self) -> Vec<&ObjectInfo> {
-        if self.filter.is_empty() {
+        let mut result: Vec<&ObjectInfo> = if self.filter.is_empty() {
             self.objects.iter().collect()
         } else {
             let f = self.filter.to_lowercase();
@@ -191,7 +243,24 @@ impl S3View {
                 .iter()
                 .filter(|o| o.display_name.to_lowercase().contains(&f))
                 .collect()
-        }
+        };
+
+        // Folders always first
+        result.sort_by(|a, b| {
+            match (a.is_prefix, b.is_prefix) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => {
+                    let ord = match self.sort_column {
+                        SortColumn::Name => a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()),
+                        SortColumn::Size => a.size.unwrap_or(0).cmp(&b.size.unwrap_or(0)),
+                        SortColumn::Modified => a.last_modified.cmp(&b.last_modified),
+                    };
+                    if self.sort_dir == SortDir::Desc { ord.reverse() } else { ord }
+                }
+            }
+        });
+        result
     }
 
     fn item_count(&self) -> usize {
@@ -331,6 +400,21 @@ impl ServiceComponent for S3View {
                     self.selected = count - 1;
                 }
             }
+            KeyCode::Char('s') => {
+                self.sort_column = match (&self.screen, &self.sort_column) {
+                    (S3Screen::Buckets, SortColumn::Name) => SortColumn::Modified,
+                    (S3Screen::Buckets, _) => SortColumn::Name,
+                    (S3Screen::Objects, SortColumn::Name) => SortColumn::Size,
+                    (S3Screen::Objects, SortColumn::Size) => SortColumn::Modified,
+                    (S3Screen::Objects, SortColumn::Modified) => SortColumn::Name,
+                    _ => SortColumn::Name,
+                };
+                self.selected = 0;
+            }
+            KeyCode::Char('S') => {
+                self.sort_dir = self.sort_dir.toggle();
+                self.selected = 0;
+            }
             KeyCode::Char('r') => {
                 if self.error.is_some() {
                     self.loading = true;
@@ -392,6 +476,10 @@ impl S3View {
 
         let filtered = self.filtered_buckets();
 
+        let w = area.width as usize;
+        let date_col = 12;
+        let name_col = w.saturating_sub(date_col + 4);
+
         if filtered.is_empty() {
             let msg = if self.filter.is_empty() {
                 "  No buckets found"
@@ -400,20 +488,37 @@ impl S3View {
             };
             let p = Paragraph::new(Span::styled(msg, Style::default().fg(Color::DarkGray)));
             frame.render_widget(p, area);
+            if self.filtering {
+                self.render_filter(frame, area);
+            }
             return;
         }
-
-        let w = area.width as usize;
-        let date_col = 12;
-        let name_col = w.saturating_sub(date_col + 4);
 
         let header_style = Style::default()
             .fg(Color::DarkGray)
             .add_modifier(Modifier::BOLD);
 
+        let name_hdr = if self.sort_column == SortColumn::Name {
+            format!("Name {}", self.sort_dir.arrow())
+        } else {
+            "Name".to_string()
+        };
+        let date_hdr = if self.sort_column == SortColumn::Modified {
+            format!("Created {}", self.sort_dir.arrow())
+        } else {
+            "Created".to_string()
+        };
+        let active_hdr = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+
         let mut items: Vec<ListItem> = vec![ListItem::new(Line::from(vec![
-            Span::styled(format!("  {:<width$}", "Name", width = name_col), header_style),
-            Span::styled(format!("{:>width$}", "Created", width = date_col), header_style),
+            Span::styled(
+                format!("  {:<width$}", name_hdr, width = name_col),
+                if self.sort_column == SortColumn::Name { active_hdr } else { header_style },
+            ),
+            Span::styled(
+                format!("{:>width$}", date_hdr, width = date_col),
+                if self.sort_column == SortColumn::Modified { active_hdr } else { header_style },
+            ),
         ]))];
 
         for (i, bucket) in filtered.iter().enumerate() {
@@ -471,6 +576,11 @@ impl S3View {
 
         let filtered = self.filtered_objects();
 
+        let w = area.width as usize;
+        let date_col = 12;
+        let size_col = 10;
+        let name_col = w.saturating_sub(date_col + size_col + 6);
+
         if filtered.is_empty() {
             let msg = if self.filter.is_empty() {
                 "  Empty"
@@ -479,22 +589,46 @@ impl S3View {
             };
             let p = Paragraph::new(Span::styled(msg, Style::default().fg(Color::DarkGray)));
             frame.render_widget(p, area);
+            if self.filtering {
+                self.render_filter(frame, area);
+            }
             return;
         }
-
-        let w = area.width as usize;
-        let date_col = 12;
-        let size_col = 10;
-        let name_col = w.saturating_sub(date_col + size_col + 6);
 
         let header_style = Style::default()
             .fg(Color::DarkGray)
             .add_modifier(Modifier::BOLD);
 
+        let name_hdr = if self.sort_column == SortColumn::Name {
+            format!("Name {}", self.sort_dir.arrow())
+        } else {
+            "Name".to_string()
+        };
+        let size_hdr = if self.sort_column == SortColumn::Size {
+            format!("Size {}", self.sort_dir.arrow())
+        } else {
+            "Size".to_string()
+        };
+        let mod_hdr = if self.sort_column == SortColumn::Modified {
+            format!("Modified {}", self.sort_dir.arrow())
+        } else {
+            "Modified".to_string()
+        };
+        let active_hdr = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+
         let mut items: Vec<ListItem> = vec![ListItem::new(Line::from(vec![
-            Span::styled(format!("  {:<width$}", "Name", width = name_col), header_style),
-            Span::styled(format!("{:>width$}", "Size", width = size_col), header_style),
-            Span::styled(format!("{:>width$}  ", "Modified", width = date_col), header_style),
+            Span::styled(
+                format!("  {:<width$}", name_hdr, width = name_col),
+                if self.sort_column == SortColumn::Name { active_hdr } else { header_style },
+            ),
+            Span::styled(
+                format!("{:>width$}", size_hdr, width = size_col),
+                if self.sort_column == SortColumn::Size { active_hdr } else { header_style },
+            ),
+            Span::styled(
+                format!("{:>width$}  ", mod_hdr, width = date_col),
+                if self.sort_column == SortColumn::Modified { active_hdr } else { header_style },
+            ),
         ]))];
 
         for (i, obj) in filtered.iter().enumerate() {

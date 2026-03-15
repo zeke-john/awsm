@@ -61,26 +61,29 @@ impl Sidebar {
                 let is_active = *service == active;
                 let is_selected = i == self.selected && focused;
 
-                let marker = if is_active { "▸ " } else { "  " };
                 let label = service.label();
 
-                let style = if is_selected {
-                    Style::default()
+                if is_selected {
+                    let style = Style::default()
                         .fg(Color::White)
                         .bg(Color::DarkGray)
-                        .add_modifier(Modifier::BOLD)
+                        .add_modifier(Modifier::BOLD);
+                    ListItem::new(Line::from(vec![
+                        Span::styled(" › ", style),
+                        Span::styled(label, style),
+                        Span::styled(" ", style),
+                    ]))
                 } else if is_active {
-                    Style::default()
-                        .fg(Color::Blue)
-                        .add_modifier(Modifier::BOLD)
+                    ListItem::new(Line::from(vec![
+                        Span::styled(" › ", Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)),
+                        Span::styled(label, Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)),
+                    ]))
                 } else {
-                    Style::default().fg(Color::Gray)
-                };
-
-                ListItem::new(Line::from(vec![
-                    Span::styled(marker, style),
-                    Span::styled(label, style),
-                ]))
+                    ListItem::new(Line::from(vec![
+                        Span::styled("   ", Style::default().fg(Color::Gray)),
+                        Span::styled(label, Style::default().fg(Color::Gray)),
+                    ]))
+                }
             })
             .collect();
 

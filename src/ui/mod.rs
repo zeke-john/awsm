@@ -54,20 +54,20 @@ fn render_profile_picker(app: &mut App, frame: &mut Frame) {
         .enumerate()
         .map(|(i, name)| {
             let is_selected = i == app.profile_selected;
-            let marker = if is_selected { " ▸ " } else { "   " };
-
-            let style = if is_selected {
-                Style::default()
+            if is_selected {
+                let style = Style::default()
                     .fg(Color::Blue)
-                    .add_modifier(Modifier::BOLD)
+                    .add_modifier(Modifier::BOLD);
+                ListItem::new(Line::from(vec![
+                    Span::styled(" › ", style),
+                    Span::styled(name.as_str(), style),
+                ]))
             } else {
-                Style::default().fg(Color::DarkGray)
-            };
-
-            ListItem::new(Line::from(vec![
-                Span::styled(marker, style),
-                Span::styled(name.as_str(), style),
-            ]))
+                ListItem::new(Line::from(vec![
+                    Span::styled("   ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(name.as_str(), Style::default().fg(Color::DarkGray)),
+                ]))
+            }
         })
         .collect();
 

@@ -59,7 +59,7 @@ impl StatusBar {
         }
 
         spans.push(Span::styled(
-            " │ ?:help q:quit ",
+            " │ ? help  q quit ",
             Style::default().fg(Color::DarkGray),
         ));
 
