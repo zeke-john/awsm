@@ -103,6 +103,7 @@ fn render_main(app: &mut App, frame: &mut Frame) {
 
     let title = match app.active_service {
         Service::S3 => format!(" {} ", app.s3_view.breadcrumb()),
+        Service::DynamoDB => format!(" {} ", app.dynamodb_view.breadcrumb()),
         _ => format!(" {} ", app.active_service.label()),
     };
 
@@ -119,10 +120,13 @@ fn render_main(app: &mut App, frame: &mut Frame) {
         Service::S3 => {
             app.s3_view.render(frame, inner);
         }
+        Service::DynamoDB => {
+            app.dynamodb_view.render(frame, inner);
+        }
         _ => {
             let placeholder = Paragraph::new(Span::styled(
                 if app.aws.is_some() {
-                    "  Not yet implemented"
+                    "  Coming soon!"
                 } else {
                     "  Connecting to AWS..."
                 },
@@ -135,6 +139,6 @@ fn render_main(app: &mut App, frame: &mut Frame) {
     statusbar::StatusBar::render(frame, outer[1], app);
 
     if app.show_help {
-        popup::render_help(frame);
+        popup::render_help(frame, &mut app.help_scroll);
     }
 }

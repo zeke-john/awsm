@@ -75,6 +75,12 @@ async fn main() -> anyhow::Result<()> {
                                 KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
                                     app.update(Action::ToggleHelp);
                                 }
+                                KeyCode::Char('j') | KeyCode::Down => {
+                                    app.help_scroll = app.help_scroll.saturating_add(1);
+                                }
+                                KeyCode::Char('k') | KeyCode::Up => {
+                                    app.help_scroll = app.help_scroll.saturating_sub(1);
+                                }
                                 _ => {}
                             }
                             continue;
@@ -102,6 +108,7 @@ async fn main() -> anyhow::Result<()> {
                         if app.focus == Focus::Main {
                             let service_action = match app.active_service {
                                 Service::S3 => app.s3_view.handle_key(key),
+                                Service::DynamoDB => app.dynamodb_view.handle_key(key),
                                 _ => None,
                             };
 
@@ -110,20 +117,27 @@ async fn main() -> anyhow::Result<()> {
                                     if let Event::Key(qk) = queued {
                                         match app.active_service {
                                             Service::S3 => { app.s3_view.handle_key(qk); }
+                                            Service::DynamoDB => { app.dynamodb_view.handle_key(qk); }
                                             _ => {}
                                         }
                                     }
                                 }
 
-                                match action {
-                                    Action::ServiceEnter => {
+                                match (&app.active_service, &action) {
+                                    (Service::S3, Action::ServiceEnter) => {
                                         handle_s3_enter(&mut app).await;
                                     }
-                                    Action::ServiceBack => {
+                                    (Service::S3, Action::ServiceBack) => {
                                         handle_s3_back(&mut app).await;
                                     }
-                                    Action::S3Download => {
+                                    (Service::S3, Action::S3Download) => {
                                         handle_s3_download(&mut app).await;
+                                    }
+                                    (Service::DynamoDB, Action::ServiceEnter) => {
+                                        handle_ddb_enter(&mut app).await;
+                                    }
+                                    (Service::DynamoDB, Action::ServiceBack) => {
+                                        handle_ddb_back(&mut app).await;
                                     }
                                     _ => {
                                         app.update(action);
@@ -168,6 +182,16 @@ async fn load_service_data(app: &mut App) {
                     match aws::s3::list_buckets(&aws.s3).await {
                         Ok(buckets) => app.s3_view.set_buckets(buckets),
                         Err(e) => app.s3_view.set_error(e),
+                    }
+                }
+            }
+        }
+        Service::DynamoDB => {
+            if app.dynamodb_view.needs_table_load() {
+                if let Some(ref aws) = app.aws {
+                    match aws::dynamodb::list_tables(&aws.dynamodb).await {
+                        Ok(tables) => app.dynamodb_view.set_tables(tables),
+                        Err(e) => app.dynamodb_view.set_error(e),
                     }
                 }
             }
@@ -297,6 +321,54 @@ fn dirs_home() -> Option<std::path::PathBuf> {
         .or_else(|_| std::env::var("USERPROFILE"))
         .ok()
         .map(std::path::PathBuf::from)
+}
+
+async fn handle_ddb_enter(app: &mut App) {
+    match app.dynamodb_view.screen_type() {
+        "tables" => {
+            if let Some(table) = app.dynamodb_view.selected_table().cloned() {
+                app.dynamodb_view.enter_table(table.name.clone());
+                if let Some(ref aws) = app.aws {
+                    if let Ok(detail) =
+                        aws::dynamodb::describe_table(&aws.dynamodb, &table.name).await
+                    {
+                        app.dynamodb_view.set_table_detail(detail);
+                    }
+                    match aws::dynamodb::scan_table(&aws.dynamodb, &table.name, None, 300, None)
+                        .await
+                    {
+                        Ok(result) => app.dynamodb_view.set_items(result),
+                        Err(e) => app.dynamodb_view.set_error(e),
+                    }
+                }
+            }
+        }
+        "items" => {
+            app.dynamodb_view.enter_detail();
+        }
+        _ => {}
+    }
+}
+
+async fn handle_ddb_back(app: &mut App) {
+    if app.dynamodb_view.needs_items_load() {
+        let table = app.dynamodb_view.active_table.clone();
+        let index = app.dynamodb_view.active_index.clone();
+        if let Some(ref aws) = app.aws {
+            match aws::dynamodb::scan_table(
+                &aws.dynamodb,
+                &table,
+                index.as_deref(),
+                300,
+                None,
+            )
+            .await
+            {
+                Ok(result) => app.dynamodb_view.set_items(result),
+                Err(e) => app.dynamodb_view.set_error(e),
+            }
+        }
+    }
 }
 
 fn handle_normal_key(code: KeyCode, modifiers: KeyModifiers, app: &App) -> Action {

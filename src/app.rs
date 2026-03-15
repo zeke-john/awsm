@@ -1,5 +1,6 @@
 use crate::aws::AwsClients;
 use crate::keys::{Focus, Mode, Service};
+use crate::ui::services::dynamodb::DynamoDbView;
 use crate::ui::services::s3::S3View;
 use crate::ui::sidebar::Sidebar;
 
@@ -40,6 +41,7 @@ pub struct App {
     pub focus: Focus,
     pub sidebar: Sidebar,
     pub show_help: bool,
+    pub help_scroll: u16,
     pub show_sidebar: bool,
     pub aws: Option<AwsClients>,
     pub aws_error: Option<String>,
@@ -48,6 +50,7 @@ pub struct App {
     pub available_profiles: Vec<String>,
     pub profile_selected: usize,
     pub s3_view: S3View,
+    pub dynamodb_view: DynamoDbView,
 }
 
 impl App {
@@ -73,6 +76,7 @@ impl App {
             focus: Focus::default(),
             sidebar: Sidebar::default(),
             show_help: false,
+            help_scroll: 0,
             show_sidebar: true,
             aws: None,
             aws_error: None,
@@ -81,6 +85,7 @@ impl App {
             available_profiles: profiles,
             profile_selected,
             s3_view: S3View::default(),
+            dynamodb_view: DynamoDbView::default(),
         }
     }
 
@@ -115,7 +120,12 @@ impl App {
                     self.focus = Focus::Main;
                 }
             }
-            Action::ToggleHelp => self.show_help = !self.show_help,
+            Action::ToggleHelp => {
+                self.show_help = !self.show_help;
+                if self.show_help {
+                    self.help_scroll = 0;
+                }
+            }
             Action::ToggleSidebar => {
                 self.show_sidebar = !self.show_sidebar;
                 if !self.show_sidebar {

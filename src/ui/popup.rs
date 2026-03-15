@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 
-pub fn render_help(frame: &mut Frame) {
+pub fn render_help(frame: &mut Frame, scroll: &mut u16) {
     let full = frame.area();
     let width = 48u16.min(full.width);
     let height = 24u16.min(full.height.saturating_sub(2));
@@ -57,24 +57,14 @@ pub fn render_help(frame: &mut Frame) {
         Line::from(""),
         Line::from(Span::styled(" Search & Sort", header_style)),
         help_line(" /", "search / filter", key_style, arrow_style, desc_style),
-        help_line(
-            " s",
-            "cycle sort column",
-            key_style,
-            arrow_style,
-            desc_style,
-        ),
-        help_line(
-            " S",
-            "toggle sort asc/desc",
-            key_style,
-            arrow_style,
-            desc_style,
-        ),
+        help_line(" s / S", "sort col right / left", key_style, arrow_style, desc_style),
+        help_line(" x", "toggle sort asc/desc", key_style, arrow_style, desc_style),
         Line::from(""),
         Line::from(Span::styled(" Actions", header_style)),
-        help_line(" d", "download file", key_style, arrow_style, desc_style),
+        help_line(" d", "download file (S3)", key_style, arrow_style, desc_style),
         help_line(" r", "retry on error", key_style, arrow_style, desc_style),
+        help_line(" + / -", "resize columns", key_style, arrow_style, desc_style),
+        help_line(" 0", "reset column width", key_style, arrow_style, desc_style),
         Line::from(""),
         Line::from(Span::styled(" General", header_style)),
         help_line(" q", "quit", key_style, arrow_style, desc_style),
@@ -87,7 +77,16 @@ pub fn render_help(frame: &mut Frame) {
         ]),
     ];
 
-    let paragraph = Paragraph::new(lines).block(block);
+    let total_lines = lines.len() as u16;
+    let inner_height = height.saturating_sub(2); // border top + bottom
+    let max_scroll = total_lines.saturating_sub(inner_height);
+    if *scroll > max_scroll {
+        *scroll = max_scroll;
+    }
+
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .scroll((*scroll, 0));
     frame.render_widget(paragraph, area);
 }
 
