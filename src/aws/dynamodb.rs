@@ -224,49 +224,79 @@ pub async fn scan_table(
     index: Option<&str>,
     limit: i32,
     start_key: Option<&BTreeMap<String, AttributeValue>>,
+    filters: Option<&[(String, String, String)]>,
 ) -> Result<ScanResult, String> {
-    let mut req = client.scan().table_name(table).limit(limit);
+    let has_filters = filters.map(|f| !f.is_empty()).unwrap_or(false);
+    let (filter_expr, filter_names, filter_values) = filters
+        .map(|f| build_filter_expression(f))
+        .unwrap_or_default();
 
-    if let Some(idx) = index {
-        req = req.index_name(idx);
-    }
-    if let Some(key) = start_key {
-        for (k, v) in key {
-            req = req.exclusive_start_key(k, v.clone());
-        }
-    }
-
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| format_aws_error("scan table", &e))?;
-
-    let scanned = resp.scanned_count() as i64;
-    let last_key = resp
-        .last_evaluated_key()
-        .map(|k| k.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
-
+    let mut all_items = Vec::new();
     let mut columns_set = BTreeSet::new();
-    let mut items = Vec::new();
+    let mut total_scanned: i64 = 0;
+    let mut current_key: Option<BTreeMap<String, AttributeValue>> = start_key.cloned();
+    let max_rounds = if has_filters { 20 } else { 1 };
 
-    for item in resp.items() {
-        let mut attributes = BTreeMap::new();
-        let mut raw = BTreeMap::new();
-        for (k, v) in item {
-            columns_set.insert(k.clone());
-            attributes.insert(k.clone(), format_attribute_value(v));
-            raw.insert(k.clone(), v.clone());
+    for _ in 0..max_rounds {
+        let mut req = client.scan().table_name(table).limit(limit);
+
+        if let Some(idx) = index {
+            req = req.index_name(idx);
         }
-        items.push(DynamoItem { attributes, raw });
+        if let Some(ref key) = current_key {
+            for (k, v) in key {
+                req = req.exclusive_start_key(k, v.clone());
+            }
+        }
+        if !filter_expr.is_empty() {
+            req = req.filter_expression(&filter_expr);
+            for (k, v) in &filter_names {
+                req = req.expression_attribute_names(k, v);
+            }
+            for (k, v) in &filter_values {
+                req = req.expression_attribute_values(k, v.clone());
+            }
+        }
+
+        let resp = req.send().await
+            .map_err(|e| format_aws_error("scan table", &e))?;
+
+        total_scanned += resp.scanned_count() as i64;
+
+        for item in resp.items() {
+            let mut attributes = BTreeMap::new();
+            let mut raw = BTreeMap::new();
+            for (k, v) in item {
+                columns_set.insert(k.clone());
+                attributes.insert(k.clone(), format_attribute_value(v));
+                raw.insert(k.clone(), v.clone());
+            }
+            all_items.push(DynamoItem { attributes, raw });
+        }
+
+        let next_key: Option<BTreeMap<String, AttributeValue>> = resp
+            .last_evaluated_key()
+            .map(|k| k.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+
+        if !has_filters || all_items.len() >= limit as usize || next_key.is_none() {
+            let columns: Vec<String> = columns_set.into_iter().collect();
+            return Ok(ScanResult {
+                items: all_items,
+                columns,
+                last_key: next_key,
+                scanned_count: total_scanned,
+            });
+        }
+
+        current_key = next_key;
     }
 
     let columns: Vec<String> = columns_set.into_iter().collect();
-
     Ok(ScanResult {
-        items,
+        items: all_items,
         columns,
-        last_key,
-        scanned_count: scanned,
+        last_key: current_key,
+        scanned_count: total_scanned,
     })
 }
 
@@ -281,68 +311,136 @@ pub async fn query_table(
     sk_value: Option<&str>,
     scan_forward: bool,
     limit: i32,
+    filters: Option<&[(String, String, String)]>,
 ) -> Result<ScanResult, String> {
-    let mut req = client
-        .query()
-        .table_name(table)
-        .limit(limit)
-        .scan_index_forward(scan_forward)
-        .key_condition_expression("#pk = :pkval")
-        .expression_attribute_names("#pk", pk_name)
-        .expression_attribute_values(":pkval", AttributeValue::S(pk_value.to_string()));
+    let has_filters = filters.map(|f| !f.is_empty()).unwrap_or(false);
+    let (filter_expr, filter_names, filter_values) = filters
+        .map(|f| build_filter_expression(f))
+        .unwrap_or_default();
 
-    if let Some(idx) = index {
-        req = req.index_name(idx);
-    }
-
-    if let (Some(sk_n), Some(cond), Some(sk_v)) = (sk_name, sk_condition, sk_value) {
-        let expr = match cond {
-            "=" => "#pk = :pkval AND #sk = :skval",
-            "begins_with" => "#pk = :pkval AND begins_with(#sk, :skval)",
-            ">" => "#pk = :pkval AND #sk > :skval",
-            ">=" => "#pk = :pkval AND #sk >= :skval",
-            "<" => "#pk = :pkval AND #sk < :skval",
-            "<=" => "#pk = :pkval AND #sk <= :skval",
-            _ => "#pk = :pkval AND #sk = :skval",
-        };
-        req = req
-            .key_condition_expression(expr)
-            .expression_attribute_names("#sk", sk_n)
-            .expression_attribute_values(":skval", AttributeValue::S(sk_v.to_string()));
-    }
-
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| format_aws_error("query table", &e))?;
-
-    let scanned = resp.scanned_count() as i64;
-    let last_key = resp
-        .last_evaluated_key()
-        .map(|k| k.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
-
-    let mut columns_set = BTreeSet::new();
-    let mut items = Vec::new();
-
-    for item in resp.items() {
-        let mut attributes = BTreeMap::new();
-        let mut raw = BTreeMap::new();
-        for (k, v) in item {
-            columns_set.insert(k.clone());
-            attributes.insert(k.clone(), format_attribute_value(v));
-            raw.insert(k.clone(), v.clone());
+    let key_expr = if let (Some(_sk_n), Some(cond), Some(_sk_v)) = (sk_name, sk_condition, sk_value) {
+        match cond {
+            "=" => "#pk = :pkval AND #sk = :skval".to_string(),
+            "begins_with" => "#pk = :pkval AND begins_with(#sk, :skval)".to_string(),
+            ">" => "#pk = :pkval AND #sk > :skval".to_string(),
+            ">=" => "#pk = :pkval AND #sk >= :skval".to_string(),
+            "<" => "#pk = :pkval AND #sk < :skval".to_string(),
+            "<=" => "#pk = :pkval AND #sk <= :skval".to_string(),
+            _ => "#pk = :pkval AND #sk = :skval".to_string(),
         }
-        items.push(DynamoItem { attributes, raw });
+    } else {
+        "#pk = :pkval".to_string()
+    };
+
+    let mut all_items = Vec::new();
+    let mut columns_set = BTreeSet::new();
+    let mut total_scanned: i64 = 0;
+    let mut current_key: Option<BTreeMap<String, AttributeValue>> = None;
+    let max_rounds = if has_filters { 20 } else { 1 };
+
+    for _ in 0..max_rounds {
+        let mut req = client
+            .query()
+            .table_name(table)
+            .limit(limit)
+            .scan_index_forward(scan_forward)
+            .key_condition_expression(&key_expr)
+            .expression_attribute_names("#pk", pk_name)
+            .expression_attribute_values(":pkval", AttributeValue::S(pk_value.to_string()));
+
+        if let Some(idx) = index {
+            req = req.index_name(idx);
+        }
+
+        if let (Some(sk_n), Some(_cond), Some(sk_v)) = (sk_name, sk_condition, sk_value) {
+            req = req
+                .expression_attribute_names("#sk", sk_n)
+                .expression_attribute_values(":skval", AttributeValue::S(sk_v.to_string()));
+        }
+
+        if let Some(ref key) = current_key {
+            for (k, v) in key {
+                req = req.exclusive_start_key(k, v.clone());
+            }
+        }
+
+        if !filter_expr.is_empty() {
+            req = req.filter_expression(&filter_expr);
+            for (k, v) in &filter_names {
+                req = req.expression_attribute_names(k, v);
+            }
+            for (k, v) in &filter_values {
+                req = req.expression_attribute_values(k, v.clone());
+            }
+        }
+
+        let resp = req.send().await
+            .map_err(|e| format_aws_error("query table", &e))?;
+
+        total_scanned += resp.scanned_count() as i64;
+
+        for item in resp.items() {
+            let mut attributes = BTreeMap::new();
+            let mut raw = BTreeMap::new();
+            for (k, v) in item {
+                columns_set.insert(k.clone());
+                attributes.insert(k.clone(), format_attribute_value(v));
+                raw.insert(k.clone(), v.clone());
+            }
+            all_items.push(DynamoItem { attributes, raw });
+        }
+
+        let next_key: Option<BTreeMap<String, AttributeValue>> = resp
+            .last_evaluated_key()
+            .map(|k| k.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+
+        if !has_filters || all_items.len() >= limit as usize || next_key.is_none() {
+            let columns: Vec<String> = columns_set.into_iter().collect();
+            return Ok(ScanResult {
+                items: all_items,
+                columns,
+                last_key: next_key,
+                scanned_count: total_scanned,
+            });
+        }
+
+        current_key = next_key;
     }
 
     let columns: Vec<String> = columns_set.into_iter().collect();
-
     Ok(ScanResult {
-        items,
+        items: all_items,
         columns,
-        last_key,
-        scanned_count: scanned,
+        last_key: current_key,
+        scanned_count: total_scanned,
     })
+}
+
+fn build_filter_expression(
+    filters: &[(String, String, String)],
+) -> (String, Vec<(String, String)>, Vec<(String, AttributeValue)>) {
+    let mut parts = Vec::new();
+    let mut names = Vec::new();
+    let mut values = Vec::new();
+
+    for (i, (attr, cond, val)) in filters.iter().enumerate() {
+        if attr.is_empty() || val.is_empty() {
+            continue;
+        }
+        let name_key = format!("#fattr{}", i);
+        let val_key = format!(":fval{}", i);
+        names.push((name_key.clone(), attr.clone()));
+        values.push((val_key.clone(), AttributeValue::S(val.clone())));
+
+        let expr = match cond.as_str() {
+            "begins_with" => format!("begins_with({}, {})", name_key, val_key),
+            "contains" => format!("contains({}, {})", name_key, val_key),
+            op => format!("{} {} {}", name_key, op, val_key),
+        };
+        parts.push(expr);
+    }
+
+    (parts.join(" AND "), names, values)
 }
 
 pub fn format_attribute_value(val: &AttributeValue) -> String {

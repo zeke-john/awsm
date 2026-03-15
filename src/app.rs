@@ -25,6 +25,7 @@ pub enum Action {
     S3CopyArn,
     DdbNextPage,
     DdbSwitchIndex,
+    DdbRunQuery,
     ToggleSidebar,
     None,
 }
@@ -53,6 +54,7 @@ pub struct App {
     pub profile_selected: usize,
     pub s3_view: S3View,
     pub dynamodb_view: DynamoDbView,
+    pub command_input: String,
 }
 
 impl App {
@@ -88,6 +90,7 @@ impl App {
             profile_selected,
             s3_view: S3View::default(),
             dynamodb_view: DynamoDbView::default(),
+            command_input: String::new(),
         }
     }
 
@@ -152,7 +155,7 @@ impl App {
             }
             Action::ServiceEnter | Action::ServiceBack
             | Action::S3Download | Action::S3CopyUri | Action::S3CopyArn
-            | Action::DdbNextPage | Action::DdbSwitchIndex
+            | Action::DdbNextPage | Action::DdbSwitchIndex | Action::DdbRunQuery
             | Action::None => {}
         }
     }

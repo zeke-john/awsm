@@ -195,6 +195,10 @@ impl S3View {
         filtered.into_iter().nth(self.selected)
     }
 
+    pub fn is_editing(&self) -> bool {
+        self.filtering
+    }
+
     pub fn needs_bucket_load(&self) -> bool {
         self.screen == S3Screen::Buckets && self.loading
     }

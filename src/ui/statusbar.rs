@@ -10,10 +10,20 @@ pub struct StatusBar;
 
 impl StatusBar {
     pub fn render(frame: &mut Frame, area: Rect, app: &App) {
-        let (mode_label, mode_color) = match app.mode {
-            crate::keys::Mode::Normal => (" NORMAL ", Color::Blue),
-            crate::keys::Mode::Insert => (" INSERT ", Color::Green),
-            crate::keys::Mode::Command => (" COMMAND ", Color::Yellow),
+        let is_editing = match app.active_service {
+            crate::keys::Service::S3 => app.s3_view.is_editing(),
+            crate::keys::Service::DynamoDB => app.dynamodb_view.is_editing(),
+            _ => false,
+        };
+
+        let (mode_label, mode_color) = if is_editing {
+            (" INSERT ", Color::Green)
+        } else {
+            match app.mode {
+                crate::keys::Mode::Normal => (" NORMAL ", Color::Blue),
+                crate::keys::Mode::Insert => (" INSERT ", Color::Green),
+                crate::keys::Mode::Command => (" COMMAND ", Color::Yellow),
+            }
         };
 
         let region_display = if app.region.is_empty() {
@@ -69,7 +79,7 @@ impl StatusBar {
         let right = Paragraph::new(Line::from(vec![
             Span::styled("? ", Style::default().fg(Color::DarkGray)),
             Span::styled("help  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("q ", Style::default().fg(Color::DarkGray)),
+            Span::styled("^c ", Style::default().fg(Color::DarkGray)),
             Span::styled("quit ", Style::default().fg(Color::DarkGray)),
         ]))
         .alignment(ratatui::layout::Alignment::Right);

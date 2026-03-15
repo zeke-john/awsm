@@ -72,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
                     Screen::Main => {
                         if app.show_help {
                             match key.code {
-                                KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
+                                KeyCode::Esc | KeyCode::Char('?') => {
                                     app.update(Action::ToggleHelp);
                                 }
                                 KeyCode::Char('j') | KeyCode::Down => {
@@ -86,23 +86,30 @@ async fn main() -> anyhow::Result<()> {
                             continue;
                         }
 
-                        // Global keys always available
-                        let global = match (key.code, key.modifiers) {
-                            (KeyCode::Char('q'), _) => Some(Action::Quit),
-                            (KeyCode::Char('c'), KeyModifiers::CONTROL) => Some(Action::Quit),
-                            (KeyCode::Char('?'), _) => Some(Action::ToggleHelp),
-                            (KeyCode::Tab, _) => Some(Action::ToggleFocus),
-                            (KeyCode::Char('b'), KeyModifiers::CONTROL) => Some(Action::ToggleSidebar),
-                            _ => None,
+                        // Skip global keys when a service overlay is open
+                        let overlay_open = match app.active_service {
+                            Service::DynamoDB => app.dynamodb_view.has_overlay(),
+                            _ => false,
                         };
 
-                        if let Some(action) = global {
-                            let prev_service = app.active_service;
-                            app.update(action);
-                            if app.active_service != prev_service {
-                                load_service_data(&mut app).await;
+                        if !overlay_open {
+                            // Global keys always available
+                            let global = match (key.code, key.modifiers) {
+                                (KeyCode::Char('c'), KeyModifiers::CONTROL) => Some(Action::Quit),
+                                (KeyCode::Char('?'), _) => Some(Action::ToggleHelp),
+                                (KeyCode::Tab, _) => Some(Action::ToggleFocus),
+                                (KeyCode::Char('b'), KeyModifiers::CONTROL) => Some(Action::ToggleSidebar),
+                                _ => None,
+                            };
+
+                            if let Some(action) = global {
+                                let prev_service = app.active_service;
+                                app.update(action);
+                                if app.active_service != prev_service {
+                                    load_service_data(&mut app).await;
+                                }
+                                continue;
                             }
-                            continue;
                         }
 
                         if app.focus == Focus::Main {
@@ -141,6 +148,9 @@ async fn main() -> anyhow::Result<()> {
                                     }
                                     (Service::DynamoDB, Action::DdbSwitchIndex) => {
                                         handle_ddb_switch_index(&mut app).await;
+                                    }
+                                    (Service::DynamoDB, Action::DdbRunQuery) => {
+                                        handle_ddb_run_query(&mut app).await;
                                     }
                                     (Service::DynamoDB, Action::ServiceBack) => {
                                         handle_ddb_back(&mut app).await;
@@ -340,7 +350,7 @@ async fn handle_ddb_enter(app: &mut App) {
                     {
                         app.dynamodb_view.set_table_detail(detail);
                     }
-                    match aws::dynamodb::scan_table(&aws.dynamodb, &table.name, None, 300, None)
+                    match aws::dynamodb::scan_table(&aws.dynamodb, &table.name, None, 300, None, None)
                         .await
                     {
                         Ok(result) => app.dynamodb_view.set_items(result),
@@ -356,6 +366,102 @@ async fn handle_ddb_enter(app: &mut App) {
     }
 }
 
+async fn handle_ddb_run_query(app: &mut App) {
+    let table = app.dynamodb_view.active_table.clone();
+    let index = app.dynamodb_view.active_index.clone();
+    let ddb = &app.dynamodb_view;
+
+    if ddb.query_mode && !ddb.query_pk_value.is_empty() {
+        // Query mode
+        let detail = match ddb.table_detail() {
+            Some(d) => d,
+            None => return,
+        };
+
+        let (pk_name, sk_name) = if let Some(ref idx_name) = index {
+            if let Some(idx) = detail.indexes.iter().find(|i| &i.name == idx_name) {
+                (idx.partition_key.clone(), idx.sort_key.clone())
+            } else {
+                (detail.partition_key.clone(), detail.sort_key.clone())
+            }
+        } else {
+            (detail.partition_key.clone(), detail.sort_key.clone())
+        };
+
+        let pk_value = ddb.query_pk_value.clone();
+        let sk_condition = ddb.query_sk_condition.clone();
+        let sk_value = ddb.query_sk_value.clone();
+        let descending = ddb.query_descending;
+
+        let has_sk_query = sk_name.is_some() && !sk_value.is_empty();
+        let sk_n_str = sk_name.clone();
+        let sk_c_str = sk_condition.clone();
+        let sk_v_str = sk_value.clone();
+        let filters = ddb.filter_tuples();
+
+        if let Some(ref aws) = app.aws {
+            let filter_ref = if filters.is_empty() { None } else { Some(filters.as_slice()) };
+            match aws::dynamodb::query_table(
+                &aws.dynamodb,
+                &table,
+                index.as_deref(),
+                &pk_name,
+                &pk_value,
+                if has_sk_query { sk_n_str.as_deref() } else { None },
+                if has_sk_query { Some(sk_c_str.as_str()) } else { None },
+                if has_sk_query { Some(sk_v_str.as_str()) } else { None },
+                !descending,
+                300,
+                filter_ref,
+            )
+            .await
+            {
+                Ok(result) => {
+                    let mut summary = format!("{} = \"{}\"", &pk_name, &pk_value);
+                    if has_sk_query {
+                        if let Some(ref skn) = sk_n_str {
+                            summary.push_str(&format!(" | {} {} \"{}\"", skn, &sk_c_str, &sk_v_str));
+                        }
+                    }
+                    for (a, c, v) in &filters {
+                        summary.push_str(&format!(" | {} {} \"{}\"", a, c, v));
+                    }
+                    app.dynamodb_view.set_items(result);
+                    app.dynamodb_view.query_summary = Some(summary);
+                }
+                Err(e) => app.dynamodb_view.set_error(e),
+            }
+        }
+    } else {
+        // Scan mode — pass filters if any
+        let filters = app.dynamodb_view.filter_tuples();
+        let filter_ref = if filters.is_empty() { None } else { Some(filters.as_slice()) };
+        if let Some(ref aws) = app.aws {
+            match aws::dynamodb::scan_table(
+                &aws.dynamodb,
+                &table,
+                index.as_deref(),
+                300,
+                None,
+                filter_ref,
+            )
+            .await
+            {
+                Ok(result) => {
+                    let summary = if !filters.is_empty() {
+                        Some(filters.iter().map(|(a, c, v)| format!("{} {} \"{}\"", a, c, v)).collect::<Vec<_>>().join(" | "))
+                    } else {
+                        None
+                    };
+                    app.dynamodb_view.set_items(result);
+                    app.dynamodb_view.query_summary = summary;
+                }
+                Err(e) => app.dynamodb_view.set_error(e),
+            }
+        }
+    }
+}
+
 async fn handle_ddb_switch_index(app: &mut App) {
     let table = app.dynamodb_view.active_table.clone();
     let index = app.dynamodb_view.active_index.clone();
@@ -365,6 +471,7 @@ async fn handle_ddb_switch_index(app: &mut App) {
             &table,
             index.as_deref(),
             300,
+            None,
             None,
         )
         .await
@@ -387,6 +494,7 @@ async fn handle_ddb_next_page(app: &mut App) {
             index.as_deref(),
             300,
             Some(&start_key),
+            None,
         )
         .await
         {
@@ -407,6 +515,7 @@ async fn handle_ddb_back(app: &mut App) {
                 index.as_deref(),
                 300,
                 None,
+                None,
             )
             .await
             {
@@ -419,7 +528,6 @@ async fn handle_ddb_back(app: &mut App) {
 
 fn handle_normal_key(code: KeyCode, modifiers: KeyModifiers, app: &App) -> Action {
     match (code, modifiers) {
-        (KeyCode::Char('q'), _) => Action::Quit,
         (KeyCode::Char('c'), KeyModifiers::CONTROL) => Action::Quit,
         (KeyCode::Char('?'), _) => Action::ToggleHelp,
         (KeyCode::Tab, _) => Action::ToggleFocus,

@@ -13,6 +13,13 @@ use crate::aws::dynamodb::{
 };
 use crate::ui::services::ServiceComponent;
 
+#[derive(Debug, Clone)]
+struct DdbFilter {
+    attribute: String,
+    condition: String,
+    value: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum DdbScreen {
     Tables,
@@ -45,7 +52,7 @@ pub struct DynamoDbView {
     pub query_sk_condition: String,
     pub query_sk_value: String,
     pub query_descending: bool,
-    query_summary: Option<String>,
+    pub query_summary: Option<String>,
     sort_col_idx: Option<usize>,
     sort_ascending: bool,
     col_width_override: usize,
@@ -54,6 +61,11 @@ pub struct DynamoDbView {
     // index picker
     index_picker_open: bool,
     index_picker_selected: usize,
+    // query builder
+    query_builder_open: bool,
+    query_builder_field: usize,
+    query_builder_editing: bool,
+    query_filters: Vec<DdbFilter>,
     // pagination
     all_pages: Vec<ScanResult>,
     current_page: usize,
@@ -79,7 +91,7 @@ impl Default for DynamoDbView {
             detail_json: None,
             active_table: String::new(),
             active_index: None,
-            query_mode: false,
+            query_mode: true,
             query_pk_value: String::new(),
             query_sk_condition: "=".to_string(),
             query_sk_value: String::new(),
@@ -92,6 +104,10 @@ impl Default for DynamoDbView {
             items_list_state: ListState::default(),
             index_picker_open: false,
             index_picker_selected: 0,
+            query_builder_open: false,
+            query_builder_field: 0,
+            query_builder_editing: false,
+            query_filters: Vec::new(),
             all_pages: Vec::new(),
             current_page: 0,
         }
@@ -129,7 +145,7 @@ impl DynamoDbView {
         self.all_pages.clear();
         self.current_page = 0;
         *self.items_list_state.offset_mut() = 0;
-        self.query_mode = false;
+        self.query_mode = true;
         self.query_pk_value.clear();
         self.query_sk_value.clear();
         self.query_summary = None;
@@ -272,6 +288,25 @@ impl DynamoDbView {
         } else {
             None
         }
+    }
+
+    pub fn is_editing(&self) -> bool {
+        self.query_builder_editing || self.filtering
+    }
+
+    pub fn has_overlay(&self) -> bool {
+        self.query_builder_open || self.index_picker_open
+    }
+
+    pub fn filter_tuples(&self) -> Vec<(String, String, String)> {
+        self.query_filters.iter()
+            .filter(|f| !f.attribute.is_empty() && !f.value.is_empty())
+            .map(|f| (f.attribute.clone(), f.condition.clone(), f.value.clone()))
+            .collect()
+    }
+
+    pub fn table_detail(&self) -> Option<&TableDetail> {
+        self.table_detail.as_ref()
     }
 
     pub fn screen_type(&self) -> &str {
@@ -555,6 +590,10 @@ impl ServiceComponent for DynamoDbView {
             return Some(Action::None);
         }
 
+        if self.query_builder_open {
+            return self.handle_query_builder_key(key);
+        }
+
         match key.code {
             KeyCode::Char('j') | KeyCode::Down => {
                 self.pending_g = false;
@@ -661,6 +700,22 @@ impl ServiceComponent for DynamoDbView {
                     self.selected = 0;
                 }
             }
+            KeyCode::Char('X') => {
+                self.pending_g = false;
+                if self.screen == DdbScreen::Items && self.query_summary.is_some() {
+                    self.query_mode = true;
+                    self.query_pk_value.clear();
+                    self.query_sk_value.clear();
+                    self.query_summary = None;
+                    self.loading = true;
+                    self.all_pages.clear();
+                    self.current_page = 0;
+                    *self.items_list_state.offset_mut() = 0;
+                    self.items_result = None;
+                    self.selected = 0;
+                    return Some(Action::DdbSwitchIndex);
+                }
+            }
             KeyCode::Char('+') | KeyCode::Char('=') => {
                 if self.screen == DdbScreen::Items {
                     if self.col_width_override == 0 {
@@ -721,6 +776,13 @@ impl ServiceComponent for DynamoDbView {
             KeyCode::Char('N') => {
                 if self.screen == DdbScreen::Items && self.current_page > 0 {
                     self.prev_page();
+                }
+            }
+            KeyCode::Char('q') => {
+                if self.screen == DdbScreen::Items && self.table_detail.is_some() {
+                    self.query_builder_open = true;
+                    self.query_builder_field = 0;
+                    self.query_builder_editing = false;
                 }
             }
             KeyCode::Enter => {
@@ -954,6 +1016,12 @@ impl DynamoDbView {
             frame.render_widget(p, list_area);
             if self.filtering {
                 self.render_filter(frame, list_area);
+            }
+            if self.index_picker_open {
+                self.render_index_picker(frame, list_area);
+            }
+            if self.query_builder_open {
+                self.render_query_builder(frame, list_area);
             }
             return;
         }
@@ -1314,6 +1382,10 @@ impl DynamoDbView {
         if self.index_picker_open {
             self.render_index_picker(frame, list_area);
         }
+
+        if self.query_builder_open {
+            self.render_query_builder(frame, list_area);
+        }
     }
 
     fn render_index_picker(&self, frame: &mut Frame, area: Rect) {
@@ -1404,6 +1476,306 @@ impl DynamoDbView {
 
         let list = List::new(items).block(block);
         frame.render_widget(list, picker_area);
+    }
+
+    fn qb_max_field(&self) -> usize {
+        let has_sk = self.qb_has_sk();
+        let base = if has_sk { 4 } else { 2 };
+        // Each filter has 3 fields (attr, cond, val), plus "add filter" button
+        base + self.query_filters.len() * 3
+    }
+
+    fn qb_has_sk(&self) -> bool {
+        self.table_detail.as_ref()
+            .and_then(|d| {
+                if let Some(ref idx) = self.active_index {
+                    d.indexes.iter().find(|i| &i.name == idx)
+                        .and_then(|i| i.sort_key.as_ref())
+                } else {
+                    d.sort_key.as_ref()
+                }
+            })
+            .is_some()
+    }
+
+    // Returns (field_type, filter_index, sub_field)
+    // field_type: 0=mode, 1=pk, 2=sk_cond, 3=sk_val, 4=filter, 5=add_filter
+    fn qb_field_type(&self) -> (usize, usize, usize) {
+        let f = self.query_builder_field;
+        let has_sk = self.qb_has_sk();
+        let base = if has_sk { 4 } else { 2 };
+        if f == 0 { return (0, 0, 0); }
+        if f == 1 { return (1, 0, 0); }
+        if has_sk && f == 2 { return (2, 0, 0); }
+        if has_sk && f == 3 { return (3, 0, 0); }
+        let filter_offset = f - base;
+        let filter_idx = filter_offset / 3;
+        let sub = filter_offset % 3;
+        if filter_idx < self.query_filters.len() {
+            (4, filter_idx, sub) // sub: 0=attr, 1=cond, 2=val
+        } else {
+            (5, 0, 0) // add filter
+        }
+    }
+
+    fn handle_query_builder_key(&mut self, key: KeyEvent) -> Option<Action> {
+        let max_field = self.qb_max_field();
+
+        if self.query_builder_editing {
+            let (ft, fi, sub) = self.qb_field_type();
+            match key.code {
+                KeyCode::Esc | KeyCode::Enter => {
+                    self.query_builder_editing = false;
+                }
+                KeyCode::Backspace => {
+                    match ft {
+                        1 => { self.query_pk_value.pop(); }
+                        3 => { self.query_sk_value.pop(); }
+                        4 if sub == 0 => { self.query_filters[fi].attribute.pop(); }
+                        4 if sub == 2 => { self.query_filters[fi].value.pop(); }
+                        _ => {}
+                    }
+                }
+                KeyCode::Char(c) => {
+                    match ft {
+                        1 => self.query_pk_value.push(c),
+                        3 => self.query_sk_value.push(c),
+                        4 if sub == 0 => self.query_filters[fi].attribute.push(c),
+                        4 if sub == 2 => self.query_filters[fi].value.push(c),
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+            return Some(Action::None);
+        }
+
+        match key.code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                if self.query_builder_field < max_field {
+                    self.query_builder_field += 1;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if self.query_builder_field > 0 {
+                    self.query_builder_field -= 1;
+                }
+            }
+            KeyCode::Enter | KeyCode::Char('i') => {
+                let (ft, fi, sub) = self.qb_field_type();
+                match ft {
+                    0 => self.query_mode = !self.query_mode,
+                    1 | 3 => self.query_builder_editing = true,
+                    2 => {
+                        let conditions = ["=", "begins_with", ">", "<", ">=", "<="];
+                        let cur = conditions.iter().position(|c| *c == self.query_sk_condition)
+                            .unwrap_or(0);
+                        self.query_sk_condition = conditions[(cur + 1) % conditions.len()].to_string();
+                    }
+                    4 if sub == 0 => self.query_builder_editing = true,
+                    4 if sub == 1 => {
+                        let conditions = ["=", "<>", ">", "<", ">=", "<=", "begins_with", "contains"];
+                        let cur = conditions.iter().position(|c| *c == self.query_filters[fi].condition)
+                            .unwrap_or(0);
+                        self.query_filters[fi].condition = conditions[(cur + 1) % conditions.len()].to_string();
+                    }
+                    4 if sub == 2 => self.query_builder_editing = true,
+                    5 => {
+                        self.query_filters.push(DdbFilter {
+                            attribute: String::new(),
+                            condition: "=".to_string(),
+                            value: String::new(),
+                        });
+                    }
+                    _ => {}
+                }
+            }
+            KeyCode::Tab => {
+                self.query_mode = !self.query_mode;
+            }
+            KeyCode::Char('a') => {
+                self.query_filters.push(DdbFilter {
+                    attribute: String::new(),
+                    condition: "=".to_string(),
+                    value: String::new(),
+                });
+                // Jump to the new filter's attribute field
+                let base = if self.qb_has_sk() { 4 } else { 2 };
+                self.query_builder_field = base + (self.query_filters.len() - 1) * 3;
+                self.query_builder_editing = true;
+            }
+            KeyCode::Char('d') => {
+                let (ft, fi, _) = self.qb_field_type();
+                if ft == 4 {
+                    self.query_filters.remove(fi);
+                    let new_max = self.qb_max_field();
+                    if self.query_builder_field > new_max {
+                        self.query_builder_field = new_max;
+                    }
+                }
+            }
+            KeyCode::Char('r') => {
+                self.query_builder_open = false;
+                self.loading = true;
+                self.all_pages.clear();
+                self.current_page = 0;
+                *self.items_list_state.offset_mut() = 0;
+                self.items_result = None;
+                self.selected = 0;
+                return Some(Action::DdbRunQuery);
+            }
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.query_builder_open = false;
+            }
+            _ => {}
+        }
+        Some(Action::None)
+    }
+
+    fn render_query_builder(&self, frame: &mut Frame, area: Rect) {
+        let detail = match &self.table_detail {
+            Some(d) => d,
+            None => return,
+        };
+
+        let (pk_name, _pk_type, sk_name, _sk_type) = if let Some(ref idx_name) = self.active_index {
+            if let Some(idx) = detail.indexes.iter().find(|i| &i.name == idx_name) {
+                (&idx.partition_key, idx.partition_key_type.as_str(), idx.sort_key.as_deref(), idx.sort_key_type.as_deref())
+            } else {
+                (&detail.partition_key, detail.partition_key_type.as_str(), detail.sort_key.as_deref(), detail.sort_key_type.as_deref())
+            }
+        } else {
+            (&detail.partition_key, detail.partition_key_type.as_str(), detail.sort_key.as_deref(), detail.sort_key_type.as_deref())
+        };
+
+        let has_sk = sk_name.is_some();
+        let filter_lines = self.query_filters.len() as u16;
+        // mode + pk + sk_cond + sk_val (if has_sk) + blank + "Filters:" + filters + "add" + blank + footer + 2 borders
+        let content_lines: u16 = 2 + (if has_sk { 2 } else { 0 }) + 2 + filter_lines + 1 + 2 + 2;
+        let popup_height = content_lines.min(area.height.saturating_sub(2));
+        let popup_width: u16 = 70u16.min(area.width.saturating_sub(4));
+        let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+        let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+
+        let popup_area = Rect { x, y, width: popup_width, height: popup_height };
+        frame.render_widget(ratatui::widgets::Clear, popup_area);
+
+        let sel = Style::default().fg(Color::White).bg(Color::DarkGray).add_modifier(Modifier::BOLD);
+        let label_s = Style::default().fg(Color::DarkGray);
+        let val_s = Style::default().fg(Color::Cyan);
+        let edit_s = Style::default().fg(Color::White).bg(Color::Rgb(60, 60, 80));
+
+        let iw = popup_width.saturating_sub(2) as usize;
+        let mut lines: Vec<Line> = Vec::new();
+
+        let text_display = |val: &str, editing: bool, field_idx: usize| -> (String, Style) {
+            if editing && self.query_builder_field == field_idx {
+                (format!("{}█", val), edit_s)
+            } else if val.is_empty() {
+                ("(enter value)".to_string(), if self.query_builder_field == field_idx { sel } else { Style::default().fg(Color::Rgb(80, 80, 80)) })
+            } else {
+                (val.to_string(), if self.query_builder_field == field_idx { sel } else { val_s })
+            }
+        };
+
+        // Mode
+        let mode_label = if self.query_mode { "Query" } else { "Scan" };
+        let mode_s = if self.query_builder_field == 0 { sel } else { val_s };
+        lines.push(Line::from(vec![
+            Span::styled(" Mode:  ", label_s),
+            Span::styled(format!("{:<w$}", mode_label, w = iw - 8), mode_s),
+        ]));
+
+        // PK
+        let (pk_disp, pk_s) = text_display(&self.query_pk_value, self.query_builder_editing, 1);
+        let pk_label = format!(" {} (pk): ", pk_name);
+        lines.push(Line::from(vec![
+            Span::styled(&pk_label, label_s),
+            Span::styled(format!("{:<w$}", pk_disp, w = iw.saturating_sub(pk_label.len())), pk_s),
+        ]));
+
+        // SK
+        if has_sk {
+            let sk_n = sk_name.unwrap_or("sk");
+
+            let cond_s = if self.query_builder_field == 2 { sel } else { val_s };
+            let cond_label_len = sk_n.len() + 13; // " {} condition: "
+            lines.push(Line::from(vec![
+                Span::styled(format!(" {} condition: ", sk_n), label_s),
+                Span::styled(format!("{:<w$}", self.query_sk_condition, w = iw.saturating_sub(cond_label_len)), cond_s),
+            ]));
+
+            let (sk_disp, sk_s) = text_display(&self.query_sk_value, self.query_builder_editing, 3);
+            let sk_label_len = sk_n.len() + 7; // " {} (sk): "
+            lines.push(Line::from(vec![
+                Span::styled(format!(" {} (sk): ", sk_n), label_s),
+                Span::styled(format!("{:<w$}", sk_disp, w = iw.saturating_sub(sk_label_len)), sk_s),
+            ]));
+        }
+
+        // Filters section
+        let base = if has_sk { 4 } else { 2 };
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(" Filters:", label_s)));
+
+        for (fi, filter) in self.query_filters.iter().enumerate() {
+            let attr_idx = base + fi * 3;
+            let cond_idx = attr_idx + 1;
+            let val_idx = attr_idx + 2;
+
+            let (attr_disp, attr_s) = text_display(&filter.attribute, self.query_builder_editing, attr_idx);
+            let attr_disp = if filter.attribute.is_empty() && !(self.query_builder_editing && self.query_builder_field == attr_idx) {
+                "(attribute)".to_string()
+            } else { attr_disp };
+            let cond_s = if self.query_builder_field == cond_idx { sel } else { val_s };
+            let (val_disp, fval_s) = text_display(&filter.value, self.query_builder_editing, val_idx);
+
+            let del_s = if self.query_builder_field >= attr_idx && self.query_builder_field <= val_idx {
+                Style::default().fg(Color::Red)
+            } else {
+                Style::default().fg(Color::Rgb(60, 60, 60))
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled("  ", label_s),
+                Span::styled(format!("{:<16}", attr_disp), attr_s),
+                Span::styled(" ", label_s),
+                Span::styled(format!("{:<13}", filter.condition), cond_s),
+                Span::styled(" ", label_s),
+                Span::styled(format!("{:<w$}", val_disp, w = iw.saturating_sub(37)), fval_s),
+                Span::styled(" [d]", del_s),
+            ]));
+        }
+
+        // Add filter
+        let add_idx = base + self.query_filters.len() * 3;
+        let add_s = if self.query_builder_field == add_idx { sel } else { Style::default().fg(Color::DarkGray) };
+        lines.push(Line::from(vec![
+            Span::styled("  + Add filter", add_s),
+        ]));
+
+        // Footer
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled(" r", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(" run  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("a", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(" add filter  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("d", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(" del filter  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Tab", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(" mode", Style::default().fg(Color::DarkGray)),
+        ]));
+
+        let block = ratatui::widgets::Block::default()
+            .title(" Query Builder ")
+            .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
+            .borders(ratatui::widgets::Borders::ALL)
+            .border_style(Style::default().fg(Color::Rgb(100, 100, 100)))
+            .style(Style::default().bg(Color::Rgb(30, 30, 40)));
+
+        let paragraph = Paragraph::new(lines).block(block);
+        frame.render_widget(paragraph, popup_area);
     }
 
     fn render_detail(&mut self, frame: &mut Frame, area: Rect) {
