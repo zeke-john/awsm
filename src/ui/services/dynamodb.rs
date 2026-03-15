@@ -50,6 +50,9 @@ pub struct DynamoDbView {
     sort_ascending: bool,
     col_width_override: usize,
     last_visible_scroll_cols: usize,
+    // pagination
+    all_pages: Vec<ScanResult>,
+    current_page: usize,
 }
 
 impl Default for DynamoDbView {
@@ -82,6 +85,8 @@ impl Default for DynamoDbView {
             sort_ascending: true,
             col_width_override: 0,
             last_visible_scroll_cols: 4,
+            all_pages: Vec::new(),
+            current_page: 0,
         }
     }
 }
@@ -114,6 +119,8 @@ impl DynamoDbView {
         self.filtering = false;
         self.col_offset = 0;
         self.items_result = None;
+        self.all_pages.clear();
+        self.current_page = 0;
         self.query_mode = false;
         self.query_pk_value.clear();
         self.query_sk_value.clear();
@@ -129,11 +136,73 @@ impl DynamoDbView {
 
     pub fn set_items(&mut self, result: ScanResult) {
         self.visible_columns = self.order_columns(&result.columns);
+        self.all_pages = vec![result.clone()];
+        self.current_page = 0;
         self.items_result = Some(result);
         self.loading = false;
         self.error = None;
         self.selected = 0;
         self.col_offset = 0;
+    }
+
+    pub fn add_page(&mut self, result: ScanResult) {
+        for col in &result.columns {
+            if !self.visible_columns.contains(col) {
+                self.visible_columns.push(col.clone());
+            }
+        }
+        self.all_pages.push(result.clone());
+        self.current_page = self.all_pages.len() - 1;
+        self.items_result = Some(result);
+        self.loading = false;
+        self.error = None;
+        self.selected = 0;
+        self.col_offset = 0;
+    }
+
+    pub fn next_page(&mut self) {
+        if self.current_page + 1 < self.all_pages.len() {
+            self.current_page += 1;
+            self.items_result = Some(self.all_pages[self.current_page].clone());
+            self.selected = 0;
+            self.col_offset = 0;
+        }
+    }
+
+    pub fn prev_page(&mut self) {
+        if self.current_page > 0 {
+            self.current_page -= 1;
+            self.items_result = Some(self.all_pages[self.current_page].clone());
+            self.selected = 0;
+            self.col_offset = 0;
+        }
+    }
+
+    pub fn has_next_page(&self) -> bool {
+        self.current_page + 1 < self.all_pages.len()
+            || self.all_pages.last()
+                .and_then(|p| p.last_key.as_ref())
+                .is_some()
+    }
+
+    pub fn needs_fetch_next_page(&self) -> bool {
+        self.current_page + 1 >= self.all_pages.len()
+            && self.all_pages.last()
+                .and_then(|p| p.last_key.as_ref())
+                .is_some()
+    }
+
+    pub fn last_key(&self) -> Option<&BTreeMap<String, aws_sdk_dynamodb::types::AttributeValue>> {
+        self.all_pages.last().and_then(|r| r.last_key.as_ref())
+    }
+
+    pub fn page_info(&self) -> (usize, usize) {
+        let current = self.current_page + 1;
+        let page_size = self.items_result.as_ref().map(|r| r.items.len()).unwrap_or(300).max(1);
+        let total = self.table_detail.as_ref()
+            .map(|d| ((d.item_count as usize) + page_size - 1) / page_size)
+            .unwrap_or(self.all_pages.len());
+        (current, total.max(1))
     }
 
     fn order_columns(&self, columns: &[String]) -> Vec<String> {
@@ -572,8 +641,18 @@ impl ServiceComponent for DynamoDbView {
                 self.filter.clear();
             }
             KeyCode::Char('n') => {
-                if self.screen == DdbScreen::Items {
-                    return Some(Action::ServiceEnter); // overloaded: next page
+                if self.screen == DdbScreen::Items && self.has_next_page() {
+                    if self.needs_fetch_next_page() {
+                        self.loading = true;
+                        return Some(Action::DdbNextPage);
+                    } else {
+                        self.next_page();
+                    }
+                }
+            }
+            KeyCode::Char('N') => {
+                if self.screen == DdbScreen::Items && self.current_page > 0 {
+                    self.prev_page();
                 }
             }
             KeyCode::Enter => {
@@ -1068,16 +1147,23 @@ impl DynamoDbView {
         }
 
         if let Some(ref result) = self.items_result {
+            let (page, total) = self.page_info();
             info_spans.push(Span::styled(" │ ", sep_style));
-            let has_more = result.last_key.is_some();
             info_spans.push(Span::styled(
-                format!(
-                    "{}{} returned",
-                    result.items.len(),
-                    if has_more { "+" } else { "" }
-                ),
+                format!("{} returned", result.items.len()),
                 orange,
             ));
+            info_spans.push(Span::styled(" │ ", sep_style));
+            info_spans.push(Span::styled(
+                format!("Page {}/{}", page, total),
+                orange,
+            ));
+            if self.has_next_page() || self.current_page > 0 {
+                info_spans.push(Span::styled(
+                    " (n/N)",
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
         }
 
         if let Some(ref summary) = self.query_summary {

@@ -23,6 +23,7 @@ pub enum Action {
     S3Download,
     S3CopyUri,
     S3CopyArn,
+    DdbNextPage,
     ToggleSidebar,
     None,
 }
@@ -150,6 +151,7 @@ impl App {
             }
             Action::ServiceEnter | Action::ServiceBack
             | Action::S3Download | Action::S3CopyUri | Action::S3CopyArn
+            | Action::DdbNextPage
             | Action::None => {}
         }
     }

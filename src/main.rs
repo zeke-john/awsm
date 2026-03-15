@@ -136,6 +136,9 @@ async fn main() -> anyhow::Result<()> {
                                     (Service::DynamoDB, Action::ServiceEnter) => {
                                         handle_ddb_enter(&mut app).await;
                                     }
+                                    (Service::DynamoDB, Action::DdbNextPage) => {
+                                        handle_ddb_next_page(&mut app).await;
+                                    }
                                     (Service::DynamoDB, Action::ServiceBack) => {
                                         handle_ddb_back(&mut app).await;
                                     }
@@ -347,6 +350,27 @@ async fn handle_ddb_enter(app: &mut App) {
             app.dynamodb_view.enter_detail();
         }
         _ => {}
+    }
+}
+
+async fn handle_ddb_next_page(app: &mut App) {
+    let table = app.dynamodb_view.active_table.clone();
+    let index = app.dynamodb_view.active_index.clone();
+    let last_key = app.dynamodb_view.last_key().cloned();
+
+    if let (Some(aws), Some(start_key)) = (&app.aws, &last_key) {
+        match aws::dynamodb::scan_table(
+            &aws.dynamodb,
+            &table,
+            index.as_deref(),
+            300,
+            Some(&start_key),
+        )
+        .await
+        {
+            Ok(result) => app.dynamodb_view.add_page(result),
+            Err(e) => app.dynamodb_view.set_error(e),
+        }
     }
 }
 
