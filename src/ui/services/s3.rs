@@ -833,10 +833,16 @@ impl S3View {
             width: area.width,
             height: 1,
         };
+        let clear = Paragraph::new(Span::styled(
+            " ".repeat(filter_area.width as usize),
+            Style::default(),
+        ));
+        frame.render_widget(clear, filter_area);
+
         let p = Paragraph::new(Line::from(vec![
-            Span::styled("/", Style::default().fg(Color::Yellow)),
+            Span::styled(" search: ", Style::default().fg(Color::DarkGray)),
             Span::styled(&self.filter, Style::default().fg(Color::White)),
-            Span::styled("█", Style::default().fg(Color::Gray)),
+            Span::styled("_", Style::default().fg(Color::Gray)),
         ]));
         frame.render_widget(p, filter_area);
     }
