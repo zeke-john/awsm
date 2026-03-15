@@ -1,4 +1,4 @@
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
@@ -22,7 +22,7 @@ impl StatusBar {
             app.region.clone()
         };
 
-        let mut spans = vec![
+        let mut left_spans = vec![
             Span::styled(
                 mode_label,
                 Style::default()
@@ -48,8 +48,8 @@ impl StatusBar {
         ];
 
         if let Some(ref err) = app.aws_error {
-            spans.push(Span::styled(" ", Style::default()));
-            spans.push(Span::styled(
+            left_spans.push(Span::styled(" ", Style::default()));
+            left_spans.push(Span::styled(
                 format!(" {} ", err),
                 Style::default()
                     .fg(Color::White)
@@ -58,12 +58,21 @@ impl StatusBar {
             ));
         }
 
-        spans.push(Span::styled(
-            " │ ? help  q quit ",
-            Style::default().fg(Color::DarkGray),
-        ));
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(1), Constraint::Length(20)])
+            .split(area);
 
-        let bar = Paragraph::new(Line::from(spans));
-        frame.render_widget(bar, area);
+        let left = Paragraph::new(Line::from(left_spans));
+        frame.render_widget(left, cols[0]);
+
+        let right = Paragraph::new(Line::from(vec![
+            Span::styled("? ", Style::default().fg(Color::DarkGray)),
+            Span::styled("help  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("q ", Style::default().fg(Color::DarkGray)),
+            Span::styled("quit ", Style::default().fg(Color::DarkGray)),
+        ]))
+        .alignment(ratatui::layout::Alignment::Right);
+        frame.render_widget(right, cols[1]);
     }
 }

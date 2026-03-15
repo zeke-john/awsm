@@ -22,6 +22,7 @@ pub enum Action {
     S3Download,
     S3CopyUri,
     S3CopyArn,
+    ToggleSidebar,
     None,
 }
 
@@ -39,6 +40,7 @@ pub struct App {
     pub focus: Focus,
     pub sidebar: Sidebar,
     pub show_help: bool,
+    pub show_sidebar: bool,
     pub aws: Option<AwsClients>,
     pub aws_error: Option<String>,
     pub region: String,
@@ -71,6 +73,7 @@ impl App {
             focus: Focus::default(),
             sidebar: Sidebar::default(),
             show_help: false,
+            show_sidebar: true,
             aws: None,
             aws_error: None,
             region: String::new(),
@@ -113,6 +116,12 @@ impl App {
                 }
             }
             Action::ToggleHelp => self.show_help = !self.show_help,
+            Action::ToggleSidebar => {
+                self.show_sidebar = !self.show_sidebar;
+                if !self.show_sidebar {
+                    self.focus = Focus::Main;
+                }
+            }
             Action::ProfileUp => {
                 if self.profile_selected > 0 {
                     self.profile_selected -= 1;

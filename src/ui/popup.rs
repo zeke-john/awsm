@@ -53,6 +53,7 @@ pub fn render_help(frame: &mut Frame) {
         ),
         help_line(" Esc / h", "back", key_style, arrow_style, desc_style),
         help_line(" Tab", "sidebar ↔ main", key_style, arrow_style, desc_style),
+        help_line(" Ctrl-b", "toggle sidebar", key_style, arrow_style, desc_style),
         Line::from(""),
         Line::from(Span::styled(" Search & Sort", header_style)),
         help_line(" /", "search / filter", key_style, arrow_style, desc_style),

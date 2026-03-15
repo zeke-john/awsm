@@ -86,6 +86,7 @@ async fn main() -> anyhow::Result<()> {
                             (KeyCode::Char('c'), KeyModifiers::CONTROL) => Some(Action::Quit),
                             (KeyCode::Char('?'), _) => Some(Action::ToggleHelp),
                             (KeyCode::Tab, _) => Some(Action::ToggleFocus),
+                            (KeyCode::Char('b'), KeyModifiers::CONTROL) => Some(Action::ToggleSidebar),
                             _ => None,
                         };
 

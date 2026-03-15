@@ -82,13 +82,18 @@ fn render_main(app: &mut App, frame: &mut Frame) {
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(frame.area());
 
-    let body = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(22), Constraint::Min(1)])
-        .split(outer[0]);
+    let main_area = if app.show_sidebar {
+        let body = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(22), Constraint::Min(1)])
+            .split(outer[0]);
 
-    app.sidebar
-        .render(frame, body[0], app.focus, app.active_service);
+        app.sidebar
+            .render(frame, body[0], app.focus, app.active_service);
+        body[1]
+    } else {
+        outer[0]
+    };
 
     let main_border = if app.focus == crate::keys::Focus::Main {
         Style::default().fg(Color::Blue)
@@ -107,8 +112,8 @@ fn render_main(app: &mut App, frame: &mut Frame) {
         .border_type(BorderType::Rounded)
         .border_style(main_border);
 
-    let inner = main_block.inner(body[1]);
-    frame.render_widget(main_block, body[1]);
+    let inner = main_block.inner(main_area);
+    frame.render_widget(main_block, main_area);
 
     match app.active_service {
         Service::S3 => {
