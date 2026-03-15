@@ -27,7 +27,7 @@ pub fn render_help(frame: &mut Frame) {
     let key_style = Style::default()
         .fg(Color::Yellow)
         .add_modifier(Modifier::BOLD);
-    let arrow_style = Style::default().fg(Color::DarkGray);
+    let arrow_style = Style::default().fg(Color::Rgb(100, 100, 100));
     let desc_style = Style::default().fg(Color::Gray);
     let header_style = Style::default()
         .fg(Color::White)
@@ -92,8 +92,8 @@ pub fn render_help(frame: &mut Frame) {
 
 fn help_line<'a>(key: &'a str, desc: &'a str, ks: Style, arrow: Style, ds: Style) -> Line<'a> {
     Line::from(vec![
-        Span::styled(format!("{:<12}", key), ks),
-        Span::styled("→ ", arrow),
+        Span::styled(format!(" {:<13}", key.trim()), ks),
+        Span::styled("→  ", arrow),
         Span::styled(desc, ds),
     ])
 }
