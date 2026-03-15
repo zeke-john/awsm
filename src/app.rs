@@ -1,3 +1,4 @@
+use crate::aws::AwsClients;
 use crate::keys::{Focus, Mode, Service};
 use crate::ui::sidebar::Sidebar;
 
@@ -12,35 +13,71 @@ pub enum Action {
     SidebarDown,
     SelectService,
     ToggleHelp,
+    ProfileUp,
+    ProfileDown,
+    ProfileSelect,
     None,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Screen {
+    ProfilePicker,
+    Main,
+}
+
 pub struct App {
     pub running: bool,
+    pub screen: Screen,
     pub mode: Mode,
     pub active_service: Service,
     pub focus: Focus,
     pub sidebar: Sidebar,
     pub show_help: bool,
+    pub aws: Option<AwsClients>,
+    pub aws_error: Option<String>,
+    pub region: String,
+    pub profile: String,
+    pub available_profiles: Vec<String>,
+    pub profile_selected: usize,
 }
 
-impl Default for App {
-    fn default() -> Self {
+impl App {
+    pub fn new() -> Self {
+        let profiles = crate::aws::list_profiles();
+        let env_profile = std::env::var("AWS_PROFILE").ok();
+
+        let (screen, profile, profile_selected) = if let Some(ref p) = env_profile {
+            (Screen::Main, p.clone(), 0)
+        } else if profiles.len() == 1 {
+            (Screen::Main, profiles[0].clone(), 0)
+        } else if profiles.is_empty() {
+            (Screen::Main, "default".to_string(), 0)
+        } else {
+            (Screen::ProfilePicker, String::new(), 0)
+        };
+
         Self {
             running: true,
+            screen,
             mode: Mode::default(),
             active_service: Service::default(),
             focus: Focus::default(),
             sidebar: Sidebar::default(),
             show_help: false,
+            aws: None,
+            aws_error: None,
+            region: String::new(),
+            profile,
+            available_profiles: profiles,
+            profile_selected,
         }
     }
-}
 
-impl App {
-    pub fn new() -> Self {
-        Self::default()
+    pub async fn init_aws(&mut self) {
+        let clients = AwsClients::new(&self.profile).await;
+        self.region = clients.region();
+        self.aws = Some(clients);
+        self.aws_error = None;
     }
 
     pub fn quit(&mut self) {
@@ -68,6 +105,22 @@ impl App {
                 }
             }
             Action::ToggleHelp => self.show_help = !self.show_help,
+            Action::ProfileUp => {
+                if self.profile_selected > 0 {
+                    self.profile_selected -= 1;
+                }
+            }
+            Action::ProfileDown => {
+                if self.profile_selected + 1 < self.available_profiles.len() {
+                    self.profile_selected += 1;
+                }
+            }
+            Action::ProfileSelect => {
+                if let Some(p) = self.available_profiles.get(self.profile_selected) {
+                    self.profile = p.clone();
+                    self.screen = Screen::Main;
+                }
+            }
             Action::None => {}
         }
     }

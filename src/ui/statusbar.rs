@@ -1,22 +1,28 @@
-use ratatui::layout::{Alignment, Rect};
+use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-use crate::keys::{Mode, Service};
+use crate::app::App;
 
 pub struct StatusBar;
 
 impl StatusBar {
-    pub fn render(frame: &mut Frame, area: Rect, mode: Mode, service: Service) {
-        let (mode_label, mode_color) = match mode {
-            Mode::Normal => (" NORMAL ", Color::Blue),
-            Mode::Insert => (" INSERT ", Color::Green),
-            Mode::Command => (" COMMAND ", Color::Yellow),
+    pub fn render(frame: &mut Frame, area: Rect, app: &App) {
+        let (mode_label, mode_color) = match app.mode {
+            crate::keys::Mode::Normal => (" NORMAL ", Color::Blue),
+            crate::keys::Mode::Insert => (" INSERT ", Color::Green),
+            crate::keys::Mode::Command => (" COMMAND ", Color::Yellow),
         };
 
-        let left = Line::from(vec![
+        let region_display = if app.region.is_empty() {
+            "no region".to_string()
+        } else {
+            app.region.clone()
+        };
+
+        let mut spans = vec![
             Span::styled(
                 mode_label,
                 Style::default()
@@ -26,16 +32,38 @@ impl StatusBar {
             ),
             Span::styled(" ", Style::default()),
             Span::styled(
-                format!(" {} ", service.label()),
+                format!(" {} ", region_display),
                 Style::default().fg(Color::White).bg(Color::DarkGray),
             ),
+            Span::styled(" ", Style::default()),
             Span::styled(
-                " │ ?:help q:quit ",
-                Style::default().fg(Color::DarkGray),
+                format!(" {} ", app.profile),
+                Style::default().fg(Color::Cyan).bg(Color::DarkGray),
             ),
-        ]);
+            Span::styled(" ", Style::default()),
+            Span::styled(
+                format!(" {} ", app.active_service.label()),
+                Style::default().fg(Color::White).bg(Color::DarkGray),
+            ),
+        ];
 
-        let bar = Paragraph::new(left).alignment(Alignment::Left);
+        if let Some(ref err) = app.aws_error {
+            spans.push(Span::styled(" ", Style::default()));
+            spans.push(Span::styled(
+                format!(" {} ", err),
+                Style::default()
+                    .fg(Color::White)
+                    .bg(Color::Red)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        }
+
+        spans.push(Span::styled(
+            " │ ?:help q:quit ",
+            Style::default().fg(Color::DarkGray),
+        ));
+
+        let bar = Paragraph::new(Line::from(spans));
         frame.render_widget(bar, area);
     }
 }

@@ -17,7 +17,7 @@ use crossterm::{cursor, execute};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
-use app::{Action, App};
+use app::{Action, App, Screen};
 use event::{Event, EventHandler};
 use keys::{Focus, Mode};
 
@@ -39,27 +39,51 @@ async fn main() -> anyhow::Result<()> {
     let mut app = App::new();
     let mut events = EventHandler::new(Duration::from_millis(250));
 
+    if app.screen == Screen::Main {
+        terminal.draw(|frame| ui::render(&app, frame))?;
+        app.init_aws().await;
+    }
+
     while app.running {
         terminal.draw(|frame| ui::render(&app, frame))?;
 
         match events.next().await {
             Some(Event::Key(key)) => {
-                if app.show_help {
-                    match key.code {
-                        KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
-                            app.update(Action::ToggleHelp);
+                match app.screen {
+                    Screen::ProfilePicker => {
+                        let action = match (key.code, key.modifiers) {
+                            (KeyCode::Char('q'), _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => Action::Quit,
+                            (KeyCode::Char('j'), _) | (KeyCode::Down, _) => Action::ProfileDown,
+                            (KeyCode::Char('k'), _) | (KeyCode::Up, _) => Action::ProfileUp,
+                            (KeyCode::Enter, _) => Action::ProfileSelect,
+                            _ => Action::None,
+                        };
+                        let needs_init = action == Action::ProfileSelect;
+                        app.update(action);
+                        if needs_init && app.screen == Screen::Main {
+                            terminal.draw(|frame| ui::render(&app, frame))?;
+                            app.init_aws().await;
                         }
-                        _ => {}
                     }
-                    continue;
-                }
+                    Screen::Main => {
+                        if app.show_help {
+                            match key.code {
+                                KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
+                                    app.update(Action::ToggleHelp);
+                                }
+                                _ => {}
+                            }
+                            continue;
+                        }
 
-                let action = match app.mode {
-                    Mode::Normal => handle_normal_key(key.code, key.modifiers, &app),
-                    Mode::Insert => Action::None,
-                    Mode::Command => Action::None,
-                };
-                app.update(action);
+                        let action = match app.mode {
+                            Mode::Normal => handle_normal_key(key.code, key.modifiers, &app),
+                            Mode::Insert => Action::None,
+                            Mode::Command => Action::None,
+                        };
+                        app.update(action);
+                    }
+                }
             }
             Some(Event::Tick) => {}
             Some(Event::Resize(_, _)) => {}
