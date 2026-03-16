@@ -1395,7 +1395,7 @@ impl DynamoDbView {
             info_spans.push(Span::styled(&detail.billing_mode, orange));
             info_spans.push(Span::styled(" │ ", sep_style));
             info_spans.push(Span::styled(
-                format!("~{} total", format_number(item_count)),
+                format!("{} total", format_number(item_count)),
                 orange,
             ));
         }
