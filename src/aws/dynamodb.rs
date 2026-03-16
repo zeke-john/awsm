@@ -1,16 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use aws_sdk_dynamodb::types::AttributeValue;
 use aws_sdk_dynamodb::Client;
+use aws_sdk_dynamodb::types::AttributeValue;
 
 fn format_aws_error(op: &str, err: &impl std::fmt::Display) -> String {
     let msg = err.to_string();
-    if msg.contains("dispatch failure")
-        || msg.contains("no credentials")
-        || msg.contains("expired")
+    if msg.contains("dispatch failure") || msg.contains("no credentials") || msg.contains("expired")
     {
-        "AWS credentials expired or missing. Run: aws sso login --profile <your-profile> (r to retry)"
-            .to_string()
+        "AWS credentials expired or missing (r to retry)".to_string()
     } else if msg.contains("AccessDenied") {
         format!("Access denied for {}. Check your IAM permissions.", op)
     } else {
@@ -100,12 +97,7 @@ pub async fn list_tables(client: &Client) -> Result<Vec<TableInfo>, String> {
     }
 
     for table in &mut tables {
-        if let Ok(desc) = client
-            .describe_table()
-            .table_name(&table.name)
-            .send()
-            .await
-        {
+        if let Ok(desc) = client.describe_table().table_name(&table.name).send().await {
             if let Some(t) = desc.table() {
                 table.status = t
                     .table_status()
@@ -128,9 +120,7 @@ pub async fn describe_table(client: &Client, name: &str) -> Result<TableDetail, 
         .await
         .map_err(|e| format_aws_error("describe table", &e))?;
 
-    let table = resp
-        .table()
-        .ok_or_else(|| "Table not found".to_string())?;
+    let table = resp.table().ok_or_else(|| "Table not found".to_string())?;
 
     let key_schema = table.key_schema();
     let attr_defs = table.attribute_definitions();
@@ -258,7 +248,9 @@ pub async fn scan_table(
             }
         }
 
-        let resp = req.send().await
+        let resp = req
+            .send()
+            .await
             .map_err(|e| format_aws_error("scan table", &e))?;
 
         total_scanned += resp.scanned_count() as i64;
@@ -318,7 +310,8 @@ pub async fn query_table(
         .map(|f| build_filter_expression(f))
         .unwrap_or_default();
 
-    let key_expr = if let (Some(_sk_n), Some(cond), Some(_sk_v)) = (sk_name, sk_condition, sk_value) {
+    let key_expr = if let (Some(_sk_n), Some(cond), Some(_sk_v)) = (sk_name, sk_condition, sk_value)
+    {
         match cond {
             "=" => "#pk = :pkval AND #sk = :skval".to_string(),
             "begins_with" => "#pk = :pkval AND begins_with(#sk, :skval)".to_string(),
@@ -374,7 +367,9 @@ pub async fn query_table(
             }
         }
 
-        let resp = req.send().await
+        let resp = req
+            .send()
+            .await
             .map_err(|e| format_aws_error("query table", &e))?;
 
         total_scanned += resp.scanned_count() as i64;
@@ -485,16 +480,20 @@ pub fn attribute_value_to_json(val: &AttributeValue) -> serde_json::Value {
         }
         AttributeValue::Bool(b) => serde_json::Value::Bool(*b),
         AttributeValue::Null(_) => serde_json::Value::Null,
-        AttributeValue::Ss(list) => {
-            serde_json::Value::Array(list.iter().map(|s| serde_json::Value::String(s.clone())).collect())
-        }
-        AttributeValue::Ns(list) => {
-            serde_json::Value::Array(list.iter().map(|n| {
-                n.parse::<i64>()
-                    .map(|i| serde_json::Value::Number(i.into()))
-                    .unwrap_or_else(|_| serde_json::Value::String(n.clone()))
-            }).collect())
-        }
+        AttributeValue::Ss(list) => serde_json::Value::Array(
+            list.iter()
+                .map(|s| serde_json::Value::String(s.clone()))
+                .collect(),
+        ),
+        AttributeValue::Ns(list) => serde_json::Value::Array(
+            list.iter()
+                .map(|n| {
+                    n.parse::<i64>()
+                        .map(|i| serde_json::Value::Number(i.into()))
+                        .unwrap_or_else(|_| serde_json::Value::String(n.clone()))
+                })
+                .collect(),
+        ),
         AttributeValue::L(list) => {
             serde_json::Value::Array(list.iter().map(attribute_value_to_json).collect())
         }
@@ -505,7 +504,9 @@ pub fn attribute_value_to_json(val: &AttributeValue) -> serde_json::Value {
                 .collect();
             serde_json::Value::Object(obj)
         }
-        AttributeValue::B(b) => serde_json::Value::String(format!("<binary {} bytes>", b.as_ref().len())),
+        AttributeValue::B(b) => {
+            serde_json::Value::String(format!("<binary {} bytes>", b.as_ref().len()))
+        }
         _ => serde_json::Value::String("<unknown>".to_string()),
     }
 }

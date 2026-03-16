@@ -2,11 +2,9 @@ use aws_sdk_secretsmanager::Client;
 
 fn format_aws_error(op: &str, err: &impl std::fmt::Display) -> String {
     let msg = err.to_string();
-    if msg.contains("dispatch failure")
-        || msg.contains("no credentials")
-        || msg.contains("expired")
+    if msg.contains("dispatch failure") || msg.contains("no credentials") || msg.contains("expired")
     {
-        "AWS credentials expired or missing. Run: aws sso login --profile <your-profile> (r to retry)".to_string()
+        "AWS credentials expired or missing (r to retry)".to_string()
     } else if msg.contains("AccessDenied") {
         format!("Access denied for {}. Check your IAM permissions.", op)
     } else {
@@ -97,10 +95,7 @@ pub async fn list_secrets(client: &Client) -> Result<Vec<SecretInfo>, String> {
     Ok(secrets)
 }
 
-pub async fn get_secret_detail(
-    client: &Client,
-    secret_id: &str,
-) -> Result<SecretDetail, String> {
+pub async fn get_secret_detail(client: &Client, secret_id: &str) -> Result<SecretDetail, String> {
     let desc = client
         .describe_secret()
         .secret_id(secret_id)
@@ -124,7 +119,8 @@ pub async fn get_secret_detail(
         .map(|m| {
             m.iter()
                 .map(|(vid, stages)| {
-                    let stage_strs: Vec<String> = stages.iter().map(|s| s.as_str().to_string()).collect();
+                    let stage_strs: Vec<String> =
+                        stages.iter().map(|s| s.as_str().to_string()).collect();
                     (vid.clone(), stage_strs)
                 })
                 .collect()
@@ -159,12 +155,7 @@ pub async fn get_secret_detail(
         secret_binary: false,
     };
 
-    match client
-        .get_secret_value()
-        .secret_id(secret_id)
-        .send()
-        .await
-    {
+    match client.get_secret_value().secret_id(secret_id).send().await {
         Ok(val) => {
             if let Some(s) = val.secret_string() {
                 detail.secret_value = Some(s.to_string());
@@ -175,7 +166,10 @@ pub async fn get_secret_detail(
         Err(e) => {
             let msg = e.to_string();
             if msg.contains("AccessDenied") {
-                detail.secret_value = Some("(access denied — missing secretsmanager:GetSecretValue permission)".to_string());
+                detail.secret_value = Some(
+                    "(access denied — missing secretsmanager:GetSecretValue permission)"
+                        .to_string(),
+                );
             }
         }
     }

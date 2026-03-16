@@ -36,6 +36,23 @@ impl AwsClients {
         }
     }
 
+    pub async fn new_with_region(profile: &str, region: &str) -> Self {
+        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .profile_name(profile)
+            .region(aws_config::Region::new(region.to_string()))
+            .load()
+            .await;
+
+        Self {
+            s3: aws_sdk_s3::Client::new(&config),
+            dynamodb: aws_sdk_dynamodb::Client::new(&config),
+            lambda: aws_sdk_lambda::Client::new(&config),
+            cloudwatch: aws_sdk_cloudwatchlogs::Client::new(&config),
+            secrets: aws_sdk_secretsmanager::Client::new(&config),
+            config,
+        }
+    }
+
     pub fn region(&self) -> String {
         self.config
             .region()

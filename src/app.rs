@@ -110,7 +110,11 @@ impl App {
     }
 
     pub async fn init_aws(&mut self) {
-        let clients = AwsClients::new(&self.profile).await;
+        let clients = if self.region.is_empty() {
+            AwsClients::new(&self.profile).await
+        } else {
+            AwsClients::new_with_region(&self.profile, &self.region).await
+        };
         self.region = clients.region();
         self.aws = Some(clients);
         self.aws_error = None;

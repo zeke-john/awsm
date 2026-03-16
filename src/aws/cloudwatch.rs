@@ -4,15 +4,16 @@ use aws_sdk_cloudwatchlogs::Client;
 
 fn format_aws_error(op: &str, err: &impl std::fmt::Display) -> String {
     let msg = err.to_string();
-    if msg.contains("dispatch failure")
-        || msg.contains("no credentials")
-        || msg.contains("expired")
+    if msg.contains("dispatch failure") || msg.contains("no credentials") || msg.contains("expired")
     {
-        "AWS credentials expired or missing. Run: aws sso login --profile <your-profile> (r to retry)".to_string()
+        "AWS credentials expired or missing (r to retry)".to_string()
     } else if msg.contains("AccessDenied") {
         format!("Access denied for {}. Check your IAM permissions.", op)
     } else if msg.contains("service error") && op.contains("filter") {
-        format!("Failed to {}: {}. Try a shorter time range or use Insights (i) for large searches.", op, msg)
+        format!(
+            "Failed to {}: {}. Try a shorter time range or use Insights (i) for large searches.",
+            op, msg
+        )
     } else {
         format!("Failed to {}: {}", op, msg)
     }

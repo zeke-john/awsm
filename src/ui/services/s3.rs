@@ -422,6 +422,17 @@ impl ServiceComponent for S3View {
                 self.selected = 0;
             }
             KeyCode::Char('S') => {
+                self.sort_column = match (&self.screen, &self.sort_column) {
+                    (S3Screen::Buckets, SortColumn::Name) => SortColumn::Modified,
+                    (S3Screen::Buckets, _) => SortColumn::Name,
+                    (S3Screen::Objects, SortColumn::Name) => SortColumn::Modified,
+                    (S3Screen::Objects, SortColumn::Modified) => SortColumn::Size,
+                    (S3Screen::Objects, SortColumn::Size) => SortColumn::Name,
+                    _ => SortColumn::Name,
+                };
+                self.selected = 0;
+            }
+            KeyCode::Char('x') => {
                 self.sort_dir = self.sort_dir.toggle();
                 self.selected = 0;
             }

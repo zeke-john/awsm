@@ -83,6 +83,27 @@ async fn main() -> anyhow::Result<()> {
                                     app.command_input.clear();
                                     if cmd == "q" || cmd == "quit" {
                                         app.quit();
+                                    } else if let Some(region) = cmd.strip_prefix("region ") {
+                                        let region = region.trim().to_string();
+                                        if !region.is_empty() {
+                                            app.region = region;
+                                            app.aws = None;
+                                            terminal.draw(|frame| ui::render(&mut app, frame))?;
+                                            app.init_aws().await;
+                                            // Reset all views
+                                            reset_all_views(&mut app);
+                                            load_service_data(&mut app).await;
+                                        }
+                                    } else if let Some(profile) = cmd.strip_prefix("profile ") {
+                                        let profile = profile.trim().to_string();
+                                        if !profile.is_empty() {
+                                            app.profile = profile;
+                                            app.aws = None;
+                                            terminal.draw(|frame| ui::render(&mut app, frame))?;
+                                            app.init_aws().await;
+                                            reset_all_views(&mut app);
+                                            load_service_data(&mut app).await;
+                                        }
                                     }
                                 }
                                 KeyCode::Backspace => {
@@ -268,6 +289,14 @@ async fn main() -> anyhow::Result<()> {
     execute!(io::stderr(), LeaveAlternateScreen, cursor::Show)?;
 
     Ok(())
+}
+
+fn reset_all_views(app: &mut App) {
+    app.s3_view = Default::default();
+    app.dynamodb_view = Default::default();
+    app.lambda_view = Default::default();
+    app.cloudwatch_view = Default::default();
+    app.secrets_view = Default::default();
 }
 
 async fn load_service_data(app: &mut App) {
@@ -783,15 +812,27 @@ fn handle_s3_copy_arn(app: &mut App) {
 
 fn copy_to_clipboard(text: &str) {
     use std::process::{Command, Stdio};
-    if let Ok(mut child) = Command::new("pbcopy")
-        .stdin(Stdio::piped())
-        .spawn()
-    {
-        if let Some(ref mut stdin) = child.stdin {
-            use std::io::Write;
-            let _ = stdin.write_all(text.as_bytes());
+    // Try pbcopy (macOS), then xclip, then xsel (Linux)
+    let commands = [
+        ("pbcopy", vec![]),
+        ("xclip", vec!["-selection", "clipboard"]),
+        ("xsel", vec!["--clipboard", "--input"]),
+    ];
+    for (cmd, args) in &commands {
+        if let Ok(mut child) = Command::new(cmd)
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            if let Some(ref mut stdin) = child.stdin {
+                use std::io::Write;
+                let _ = stdin.write_all(text.as_bytes());
+            }
+            let _ = child.wait();
+            return;
         }
-        let _ = child.wait();
     }
 }
 

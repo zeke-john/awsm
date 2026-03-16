@@ -4,7 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
 use crate::app::Action;
@@ -1468,7 +1468,9 @@ impl CloudWatchView {
 
     fn render_search_popup(&self, frame: &mut Frame, area: Rect) {
         let popup_width: u16 = 60u16.min(area.width.saturating_sub(4));
-        let popup_height: u16 = 9u16.min(area.height.saturating_sub(2));
+        // 2 fields + blank + footer + 2 borders, +1 if status
+        let content: u16 = 4 + if self.search_status.is_some() { 1 } else { 0 } + 2;
+        let popup_height: u16 = content.min(area.height.saturating_sub(2));
         let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
         let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
 
@@ -1477,9 +1479,10 @@ impl CloudWatchView {
 
         let block = Block::default()
             .title(" Search Log Group ")
+            .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::Cyan));
+            .border_style(Style::default().fg(Color::Rgb(100, 100, 100)))
+            .style(Style::default().bg(Color::Rgb(30, 30, 40)));
 
         let sel = Style::default().fg(Color::White).bg(Color::DarkGray).add_modifier(Modifier::BOLD);
         let label_s = Style::default().fg(Color::DarkGray);
@@ -1564,7 +1567,12 @@ impl CloudWatchView {
 
     fn render_insights_popup(&self, frame: &mut Frame, area: Rect) {
         let popup_width: u16 = 70u16.min(area.width.saturating_sub(4));
-        let popup_height: u16 = 18u16.min(area.height.saturating_sub(2));
+        // groups + "Query:" + query lines (min 3) + blank + hours + status? + blank + footer + 2 borders
+        let query_lines = self.insights_query.split('\n').count().max(3) as u16;
+        let content: u16 = 1 + 1 + query_lines + 1 + 1
+            + if self.insights_status.is_some() { 1 } else { 0 }
+            + 1 + 1 + 2;
+        let popup_height: u16 = content.min(area.height.saturating_sub(2));
         let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
         let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
 
@@ -1573,9 +1581,10 @@ impl CloudWatchView {
 
         let block = Block::default()
             .title(" Logs Insights ")
+            .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::Cyan));
+            .border_style(Style::default().fg(Color::Rgb(100, 100, 100)))
+            .style(Style::default().bg(Color::Rgb(30, 30, 40)));
 
         let sel = Style::default().fg(Color::White).bg(Color::DarkGray).add_modifier(Modifier::BOLD);
         let label_s = Style::default().fg(Color::DarkGray);
@@ -1623,15 +1632,6 @@ impl CloudWatchView {
             };
             lines.push(Line::from(Span::styled(
                 format!("{:<w$}", display, w = iw),
-                query_style,
-            )));
-        }
-
-        // Pad to at least 6 lines for the query area
-        let min_query_lines = 6;
-        while lines.len() < min_query_lines + 1 {
-            lines.push(Line::from(Span::styled(
-                format!("{:<w$}", "", w = iw),
                 query_style,
             )));
         }

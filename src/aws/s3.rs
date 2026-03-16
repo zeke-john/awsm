@@ -2,10 +2,9 @@ use aws_sdk_s3::Client;
 
 fn format_aws_error(op: &str, err: &impl std::fmt::Display) -> String {
     let msg = err.to_string();
-    if msg.contains("dispatch failure") || msg.contains("no credentials") || msg.contains("expired") {
-        format!(
-            "AWS credentials expired or missing. Run: aws sso login --profile <your-profile> (r to retry)"
-        )
+    if msg.contains("dispatch failure") || msg.contains("no credentials") || msg.contains("expired")
+    {
+        format!("AWS credentials expired or missing (r to retry)")
     } else if msg.contains("AccessDenied") {
         format!("Access denied for {}. Check your IAM permissions.", op)
     } else {
@@ -77,10 +76,7 @@ pub async fn list_objects(
 
     for cp in resp.common_prefixes() {
         if let Some(p) = cp.prefix() {
-            let display = p
-                .strip_prefix(prefix)
-                .unwrap_or(p)
-                .trim_end_matches('/');
+            let display = p.strip_prefix(prefix).unwrap_or(p).trim_end_matches('/');
             if !display.is_empty() {
                 items.push(ObjectInfo {
                     key: p.to_string(),
@@ -184,11 +180,42 @@ pub async fn get_object_detail(
 
     let ext_is_text = matches!(
         key.rsplit('.').next().map(|e| e.to_lowercase()).as_deref(),
-        Some("txt" | "json" | "xml" | "yaml" | "yml" | "csv" | "log" | "md"
-            | "html" | "htm" | "css" | "js" | "ts" | "py" | "rb" | "rs"
-            | "go" | "java" | "sh" | "bash" | "zsh" | "toml" | "ini" | "cfg"
-            | "conf" | "env" | "sql" | "graphql" | "tf" | "hcl" | "jsx"
-            | "tsx" | "vue" | "svelte")
+        Some(
+            "txt"
+                | "json"
+                | "xml"
+                | "yaml"
+                | "yml"
+                | "csv"
+                | "log"
+                | "md"
+                | "html"
+                | "htm"
+                | "css"
+                | "js"
+                | "ts"
+                | "py"
+                | "rb"
+                | "rs"
+                | "go"
+                | "java"
+                | "sh"
+                | "bash"
+                | "zsh"
+                | "toml"
+                | "ini"
+                | "cfg"
+                | "conf"
+                | "env"
+                | "sql"
+                | "graphql"
+                | "tf"
+                | "hcl"
+                | "jsx"
+                | "tsx"
+                | "vue"
+                | "svelte"
+        )
     );
 
     let is_text = ext_is_text
@@ -199,19 +226,9 @@ pub async fn get_object_detail(
         || content_type.contains("javascript");
 
     let content = if is_text && size < 512_000 {
-        match client
-            .get_object()
-            .bucket(bucket)
-            .key(key)
-            .send()
-            .await
-        {
+        match client.get_object().bucket(bucket).key(key).send().await {
             Ok(resp) => {
-                let body = resp
-                    .body
-                    .collect()
-                    .await
-                    .map_err(|e| format!("{}", e))?;
+                let body = resp.body.collect().await.map_err(|e| format!("{}", e))?;
                 String::from_utf8(body.to_vec()).ok()
             }
             Err(_) => None,
@@ -264,8 +281,7 @@ pub async fn download_object(
             .map_err(|e| format!("Failed to create directory: {}", e))?;
     }
 
-    std::fs::write(dest, body.to_vec())
-        .map_err(|e| format!("Failed to write file: {}", e))?;
+    std::fs::write(dest, body.to_vec()).map_err(|e| format!("Failed to write file: {}", e))?;
 
     Ok(())
 }

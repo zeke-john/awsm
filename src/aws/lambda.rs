@@ -2,11 +2,9 @@ use aws_sdk_lambda::Client;
 
 fn format_aws_error(op: &str, err: &impl std::fmt::Display) -> String {
     let msg = err.to_string();
-    if msg.contains("dispatch failure")
-        || msg.contains("no credentials")
-        || msg.contains("expired")
+    if msg.contains("dispatch failure") || msg.contains("no credentials") || msg.contains("expired")
     {
-        "AWS credentials expired or missing. Run: aws sso login --profile <your-profile> (r to retry)".to_string()
+        "AWS credentials expired or missing (r to retry)".to_string()
     } else if msg.contains("AccessDenied") {
         format!("Access denied for {}. Check your IAM permissions.", op)
     } else {
@@ -90,10 +88,7 @@ pub async fn list_functions(client: &Client) -> Result<Vec<FunctionInfo>, String
     Ok(functions)
 }
 
-pub async fn get_function_detail(
-    client: &Client,
-    name: &str,
-) -> Result<FunctionDetail, String> {
+pub async fn get_function_detail(client: &Client, name: &str) -> Result<FunctionDetail, String> {
     let resp = client
         .get_function()
         .function_name(name)
@@ -127,10 +122,8 @@ pub async fn get_function_detail(
     let tags = resp
         .tags()
         .map(|t| {
-            let mut v: Vec<(String, String)> = t
-                .iter()
-                .map(|(k, val)| (k.clone(), val.clone()))
-                .collect();
+            let mut v: Vec<(String, String)> =
+                t.iter().map(|(k, val)| (k.clone(), val.clone())).collect();
             v.sort_by(|a, b| a.0.cmp(&b.0));
             v
         })
@@ -178,9 +171,7 @@ pub async fn get_function_detail(
             .tracing_config()
             .and_then(|t| t.mode())
             .map(|m| m.as_str().to_string()),
-        vpc_id: vpc_config
-            .and_then(|v| v.vpc_id())
-            .map(|s| s.to_string()),
+        vpc_id: vpc_config.and_then(|v| v.vpc_id()).map(|s| s.to_string()),
         subnet_ids: vpc_config
             .map(|v| v.subnet_ids().iter().map(|s| s.to_string()).collect())
             .unwrap_or_default(),

@@ -139,6 +139,8 @@ pub fn render_help(frame: &mut Frame, scroll: &mut u16) {
         Line::from(Span::styled(" General", header_style)),
         help_line(" r", "retry on error", key_style, arrow_style, desc_style),
         help_line(" :q", "quit", key_style, arrow_style, desc_style),
+        help_line(" :region", "switch region", key_style, arrow_style, desc_style),
+        help_line(" :profile", "switch profile", key_style, arrow_style, desc_style),
         help_line(" Ctrl-c", "quit", key_style, arrow_style, desc_style),
         help_line(" ?", "toggle help", key_style, arrow_style, desc_style),
         Line::from(""),

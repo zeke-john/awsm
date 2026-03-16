@@ -77,6 +77,16 @@ fn render_profile_picker(app: &mut App, frame: &mut Frame) {
 }
 
 fn render_main(app: &mut App, frame: &mut Frame) {
+    let area = frame.area();
+    if area.width < 40 || area.height < 8 {
+        let msg = Paragraph::new(Span::styled(
+            "Terminal too small pls resize to at least 40x8",
+            Style::default().fg(Color::Yellow),
+        ));
+        frame.render_widget(msg, area);
+        return;
+    }
+
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(1)])

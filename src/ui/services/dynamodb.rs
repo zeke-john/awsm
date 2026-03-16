@@ -1413,10 +1413,10 @@ impl DynamoDbView {
         };
 
         let index_count = 1 + detail.indexes.len();
-        let picker_height = (index_count as u16 + 2).min(area.height); // +2 for borders
+        let picker_height = (index_count as u16 + 2).min(area.height.saturating_sub(2)); // +2 for borders
         let picker_width = 50u16.min(area.width.saturating_sub(4));
         let x = area.x + (area.width.saturating_sub(picker_width)) / 2;
-        let y = area.y + 1;
+        let y = area.y + (area.height.saturating_sub(picker_height)) / 2;
 
         let picker_area = Rect {
             x,
