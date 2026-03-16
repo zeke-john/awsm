@@ -105,8 +105,8 @@ fn render_main(app: &mut App, frame: &mut Frame) {
         Service::S3 => format!(" {} ", app.s3_view.breadcrumb()),
         Service::DynamoDB => format!(" {} ", app.dynamodb_view.breadcrumb()),
         Service::Lambda => format!(" {} ", app.lambda_view.breadcrumb()),
+        Service::CloudWatch => format!(" {} ", app.cloudwatch_view.breadcrumb()),
         Service::SecretsManager => format!(" {} ", app.secrets_view.breadcrumb()),
-        _ => format!(" {} ", app.active_service.label()),
     };
 
     let main_block = Block::default()
@@ -128,19 +128,11 @@ fn render_main(app: &mut App, frame: &mut Frame) {
         Service::Lambda => {
             app.lambda_view.render(frame, inner);
         }
+        Service::CloudWatch => {
+            app.cloudwatch_view.render(frame, inner);
+        }
         Service::SecretsManager => {
             app.secrets_view.render(frame, inner);
-        }
-        _ => {
-            let placeholder = Paragraph::new(Span::styled(
-                if app.aws.is_some() {
-                    "  Coming soon!"
-                } else {
-                    "  Connecting to AWS..."
-                },
-                Style::default().fg(Color::DarkGray),
-            ));
-            frame.render_widget(placeholder, inner);
         }
     }
 

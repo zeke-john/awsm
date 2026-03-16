@@ -28,8 +28,8 @@ impl StatusBar {
             crate::keys::Service::S3 => app.s3_view.is_editing(),
             crate::keys::Service::DynamoDB => app.dynamodb_view.is_editing(),
             crate::keys::Service::Lambda => app.lambda_view.is_editing(),
+            crate::keys::Service::CloudWatch => app.cloudwatch_view.is_editing(),
             crate::keys::Service::SecretsManager => app.secrets_view.is_editing(),
-            _ => false,
         };
 
         let (mode_label, mode_color) = if is_editing {

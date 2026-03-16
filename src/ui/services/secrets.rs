@@ -51,6 +51,7 @@ pub struct SecretsManagerView {
     pub detail: Option<SecretDetail>,
     pub detail_scroll: u16,
     selected: usize,
+    list_state: ListState,
     loading: bool,
     error: Option<String>,
     filter: String,
@@ -70,6 +71,7 @@ impl Default for SecretsManagerView {
             detail: None,
             detail_scroll: 0,
             selected: 0,
+            list_state: ListState::default(),
             loading: true,
             error: None,
             filter: String::new(),
@@ -89,6 +91,7 @@ impl SecretsManagerView {
         self.loading = false;
         self.error = None;
         self.selected = 0;
+        self.list_state = ListState::default();
     }
 
     pub fn set_error(&mut self, error: String) {
@@ -386,7 +389,7 @@ impl ServiceComponent for SecretsManagerView {
 }
 
 impl SecretsManagerView {
-    fn render_list(&self, frame: &mut Frame, area: Rect) {
+    fn render_list(&mut self, frame: &mut Frame, area: Rect) {
         if self.loading {
             let p = Paragraph::new(Span::styled(
                 "  Loading secrets...",
@@ -450,7 +453,7 @@ impl SecretsManagerView {
             "Accessed".to_string()
         };
 
-        let mut items: Vec<ListItem> = vec![ListItem::new(Line::from(vec![
+        let header = Paragraph::new(Line::from(vec![
             Span::styled(
                 format!("  {:<width$}", name_hdr, width = name_col),
                 if self.sort_column == SortColumn::Name {
@@ -475,7 +478,17 @@ impl SecretsManagerView {
                     header_style
                 },
             ),
-        ]))];
+        ]));
+        let header_area = Rect { height: 1, ..area };
+        frame.render_widget(header, header_area);
+
+        let data_area = Rect {
+            y: area.y + 1,
+            height: area.height.saturating_sub(1),
+            ..area
+        };
+
+        let mut items: Vec<ListItem> = Vec::new();
 
         for (i, secret) in filtered.iter().enumerate() {
             let is_selected = i == self.selected;
@@ -519,8 +532,13 @@ impl SecretsManagerView {
         }
 
         let list = List::new(items);
-        let mut state = ListState::default().with_selected(Some(self.selected + 1));
-        frame.render_stateful_widget(list, area, &mut state);
+        self.list_state.select(Some(self.selected));
+        let render_area = if self.filtering {
+            Rect { height: data_area.height.saturating_sub(1), ..data_area }
+        } else {
+            data_area
+        };
+        frame.render_stateful_widget(list, render_area, &mut self.list_state);
 
         if self.filtering {
             self.render_filter(frame, area);

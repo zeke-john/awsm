@@ -119,6 +119,7 @@ async fn main() -> anyhow::Result<()> {
                         // Skip global keys when a service overlay is open
                         let overlay_open = match app.active_service {
                             Service::DynamoDB => app.dynamodb_view.has_overlay(),
+                            Service::CloudWatch => app.cloudwatch_view.has_overlay(),
                             _ => false,
                         };
 
@@ -149,7 +150,7 @@ async fn main() -> anyhow::Result<()> {
                                 Service::DynamoDB => app.dynamodb_view.handle_key(key),
                                 Service::Lambda => app.lambda_view.handle_key(key),
                                 Service::SecretsManager => app.secrets_view.handle_key(key),
-                                _ => None,
+                                Service::CloudWatch => app.cloudwatch_view.handle_key(key),
                             };
 
                             if let Some(action) = service_action {
@@ -160,7 +161,7 @@ async fn main() -> anyhow::Result<()> {
                                             Service::DynamoDB => { app.dynamodb_view.handle_key(qk); }
                                             Service::Lambda => { app.lambda_view.handle_key(qk); }
                                             Service::SecretsManager => { app.secrets_view.handle_key(qk); }
-                                            _ => {}
+                                            Service::CloudWatch => { app.cloudwatch_view.handle_key(qk); }
                                         }
                                     }
                                 }
@@ -195,6 +196,29 @@ async fn main() -> anyhow::Result<()> {
                                     }
                                     (Service::Lambda, Action::ServiceBack) => {
                                     }
+                                    (Service::CloudWatch, Action::ServiceEnter) => {
+                                        handle_cw_enter(&mut app).await;
+                                    }
+                                    (Service::CloudWatch, Action::ServiceBack) => {
+                                    }
+                                    (Service::CloudWatch, Action::CwLoadEvents) => {
+                                        handle_cw_load_events(&mut app).await;
+                                    }
+                                    (Service::CloudWatch, Action::CwNextPage) => {
+                                        handle_cw_next_page(&mut app).await;
+                                    }
+                                    (Service::CloudWatch, Action::CwRefresh) => {
+                                        handle_cw_refresh(&mut app).await;
+                                    }
+                                    (Service::CloudWatch, Action::CwRunSearch) => {
+                                        handle_cw_search(&mut app).await;
+                                    }
+                                    (Service::CloudWatch, Action::CwRunInsights) => {
+                                        handle_cw_insights(&mut app, &mut terminal).await;
+                                    }
+                                    (Service::CloudWatch, Action::CwSearchNextPage) => {
+                                        handle_cw_search_next_page(&mut app).await;
+                                    }
                                     (Service::SecretsManager, Action::ServiceEnter) => {
                                         handle_secrets_enter(&mut app).await;
                                     }
@@ -223,7 +247,18 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            Some(Event::Tick) => {}
+            Some(Event::Tick) => {
+                // Continue background search if still scanning empty pages
+                if app.active_service == Service::CloudWatch
+                    && app.cloudwatch_view.search_continuing
+                {
+                    let group = app.cloudwatch_view.active_group.clone();
+                    let pattern = app.cloudwatch_view.search_pattern.clone();
+                    let (start_ms, end_ms) = app.cloudwatch_view.search_time_millis();
+                    let token = app.cloudwatch_view.next_token.clone();
+                    cw_search_burst(&mut app, &group, &pattern, start_ms, end_ms, token).await;
+                }
+            }
             Some(Event::Resize(_, _)) => {}
             None => break,
         }
@@ -267,6 +302,16 @@ async fn load_service_data(app: &mut App) {
                 }
             }
         }
+        Service::CloudWatch => {
+            if app.cloudwatch_view.needs_group_load() {
+                if let Some(ref aws) = app.aws {
+                    match aws::cloudwatch::list_log_groups(&aws.cloudwatch).await {
+                        Ok(groups) => app.cloudwatch_view.set_groups(groups),
+                        Err(e) => app.cloudwatch_view.set_error(e),
+                    }
+                }
+            }
+        }
         Service::SecretsManager => {
             if app.secrets_view.needs_secret_load() {
                 if let Some(ref aws) = app.aws {
@@ -277,8 +322,319 @@ async fn load_service_data(app: &mut App) {
                 }
             }
         }
+    }
+}
+
+async fn handle_cw_enter(app: &mut App) {
+    match app.cloudwatch_view.screen_type() {
+        "groups" => {
+            if let Some(group) = app.cloudwatch_view.selected_group().cloned() {
+                app.cloudwatch_view.enter_group(group.name.clone());
+                if let Some(ref aws) = app.aws {
+                    match aws::cloudwatch::list_log_streams(&aws.cloudwatch, &group.name).await {
+                        Ok(streams) => app.cloudwatch_view.set_streams(streams),
+                        Err(e) => app.cloudwatch_view.set_error(e),
+                    }
+                }
+            }
+        }
+        "streams" => {
+            if let Some(stream) = app.cloudwatch_view.selected_stream().cloned() {
+                let group = app.cloudwatch_view.active_group.clone();
+                app.cloudwatch_view.enter_stream(stream.name.clone());
+                if let Some(ref aws) = app.aws {
+                    match aws::cloudwatch::get_stream_events(
+                        &aws.cloudwatch,
+                        &group,
+                        &stream.name,
+                        None,
+                    )
+                    .await
+                    {
+                        Ok(result) => app.cloudwatch_view.set_events(result.events, result.next_token),
+                        Err(e) => app.cloudwatch_view.set_error(e),
+                    }
+                }
+            }
+        }
         _ => {}
     }
+}
+
+async fn handle_cw_refresh(app: &mut App) {
+    match app.cloudwatch_view.screen_type() {
+        "groups" => {
+            if let Some(ref aws) = app.aws {
+                match aws::cloudwatch::list_log_groups(&aws.cloudwatch).await {
+                    Ok(groups) => {
+                        app.cloudwatch_view.set_groups(groups);
+                        app.cloudwatch_view.refresh_flash = 6;
+                    }
+                    Err(e) => app.cloudwatch_view.set_error(e),
+                }
+            }
+        }
+        "streams" => {
+            let group = app.cloudwatch_view.active_group.clone();
+            if let Some(ref aws) = app.aws {
+                match aws::cloudwatch::list_log_streams(&aws.cloudwatch, &group).await {
+                    Ok(streams) => {
+                        app.cloudwatch_view.set_streams(streams);
+                        app.cloudwatch_view.refresh_flash = 6;
+                    }
+                    Err(e) => app.cloudwatch_view.set_error(e),
+                }
+            }
+        }
+        "events" => {
+            let group = app.cloudwatch_view.active_group.clone();
+            let stream = app.cloudwatch_view.active_stream.clone();
+            if let Some(ref aws) = app.aws {
+                match aws::cloudwatch::get_stream_events(
+                    &aws.cloudwatch,
+                    &group,
+                    &stream,
+                    None,
+                )
+                .await
+                {
+                    Ok(result) => {
+                        app.cloudwatch_view.set_events(result.events, result.next_token);
+                        app.cloudwatch_view.refresh_flash = 6;
+                    }
+                    Err(e) => app.cloudwatch_view.set_error(e),
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+async fn handle_cw_load_events(app: &mut App) {
+    let group = app.cloudwatch_view.active_group.clone();
+    let stream = app.cloudwatch_view.active_stream.clone();
+
+    if let Some(ref aws) = app.aws {
+        match aws::cloudwatch::get_stream_events(&aws.cloudwatch, &group, &stream, None).await {
+            Ok(result) => app.cloudwatch_view.set_events(result.events, result.next_token),
+            Err(e) => app.cloudwatch_view.set_error(e),
+        }
+    }
+}
+
+async fn handle_cw_next_page(app: &mut App) {
+    let group = app.cloudwatch_view.active_group.clone();
+    let stream = app.cloudwatch_view.active_stream.clone();
+    let token = app.cloudwatch_view.next_token.clone();
+
+    if let (Some(aws), Some(next_token)) = (&app.aws, &token) {
+        match aws::cloudwatch::get_stream_events(
+            &aws.cloudwatch,
+            &group,
+            &stream,
+            Some(&next_token),
+        )
+        .await
+        {
+            Ok(result) => app.cloudwatch_view.append_events(result.events, result.next_token),
+            Err(e) => app.cloudwatch_view.set_error(e),
+        }
+    }
+}
+
+async fn handle_cw_search(app: &mut App) {
+    let group = app.cloudwatch_view.active_group.clone();
+    let pattern = app.cloudwatch_view.search_pattern.clone();
+    let (start_ms, end_ms) = app.cloudwatch_view.search_time_millis();
+
+    // Close popup, switch to events view in loading state
+    app.cloudwatch_view.start_search_view();
+
+    // Fetch a single burst of pages (skip empties, cap at 5 API calls)
+    // then return control to the event loop so the UI stays responsive.
+    // Auto-load will trigger CwSearchNextPage as the user scrolls.
+    cw_search_burst(app, &group, &pattern, start_ms, end_ms, None).await;
+}
+
+async fn handle_cw_search_next_page(app: &mut App) {
+    let group = app.cloudwatch_view.active_group.clone();
+    let pattern = app.cloudwatch_view.search_pattern.clone();
+    let (start_ms, end_ms) = app.cloudwatch_view.search_time_millis();
+
+    let token = match app.cloudwatch_view.next_token.clone() {
+        Some(t) => t,
+        None => {
+            app.cloudwatch_view.loading = false;
+            return;
+        }
+    };
+
+    cw_search_burst(app, &group, &pattern, start_ms, end_ms, Some(token)).await;
+}
+
+/// Fetch a small burst of filter_log_events pages (skipping empty ones),
+/// then return so the event loop can process input. This keeps the UI responsive.
+/// Sets search_continuing=true if more pages remain, so tick events drive the next burst.
+async fn cw_search_burst(
+    app: &mut App,
+    group: &str,
+    pattern: &str,
+    start_ms: i64,
+    end_ms: i64,
+    initial_token: Option<String>,
+) {
+    let cw_client = match &app.aws {
+        Some(a) => a.cloudwatch.clone(),
+        None => return,
+    };
+
+    let mut token = initial_token;
+    // Do at most 3 API calls per burst — enough to skip empties but fast enough
+    // to return control to the event loop for scroll/input handling
+    for _ in 0..3 {
+        match aws::cloudwatch::filter_log_group_events(
+            &cw_client,
+            group,
+            pattern,
+            start_ms,
+            end_ms,
+            token.as_deref(),
+        )
+        .await
+        {
+            Ok(result) => {
+                if !result.events.is_empty() {
+                    app.cloudwatch_view.events.extend(result.events);
+                }
+                token = result.next_token;
+                app.cloudwatch_view.next_token = token.clone();
+
+                if token.is_none() {
+                    // All done — no more pages
+                    app.cloudwatch_view.loading = false;
+                    app.cloudwatch_view.search_continuing = false;
+                    return;
+                }
+            }
+            Err(e) => {
+                if app.cloudwatch_view.events.is_empty() {
+                    app.cloudwatch_view.set_error(e);
+                } else {
+                    app.cloudwatch_view.next_token = None;
+                    app.cloudwatch_view.loading = false;
+                }
+                app.cloudwatch_view.search_continuing = false;
+                return;
+            }
+        }
+    }
+
+    // Burst done, more pages remain.
+    // If we still have 0 events, keep search_continuing=true so tick drives the next burst.
+    // If we have events, let auto-scroll drive further loads.
+    if app.cloudwatch_view.events.is_empty() {
+        app.cloudwatch_view.search_continuing = true;
+        // Keep loading=true so the UI shows "loading..."
+    } else {
+        app.cloudwatch_view.search_continuing = false;
+        app.cloudwatch_view.loading = false;
+    }
+}
+
+async fn handle_cw_insights(
+    app: &mut App,
+    terminal: &mut Terminal<CrosstermBackend<io::Stderr>>,
+) {
+    let groups = app.cloudwatch_view.insights_groups.clone();
+    let query = app.cloudwatch_view.insights_query.clone();
+    let (start_secs, end_secs) = app.cloudwatch_view.insights_time_secs();
+
+    let _ = terminal.draw(|frame| ui::render(app, frame));
+
+    let cw_client = match &app.aws {
+        Some(a) => a.cloudwatch.clone(),
+        None => return,
+    };
+
+    let query_id = match aws::cloudwatch::start_insights_query(
+        &cw_client,
+        &groups,
+        &query,
+        start_secs,
+        end_secs,
+    )
+    .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            app.cloudwatch_view.insights_status = Some(format!("Error: {}", e));
+            app.cloudwatch_view.loading = false;
+            return;
+        }
+    };
+
+    app.cloudwatch_view.insights_status = Some("Running...".to_string());
+    let _ = terminal.draw(|frame| ui::render(app, frame));
+
+    // Poll until complete
+    loop {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        match aws::cloudwatch::get_insights_results(&cw_client, &query_id).await {
+            Ok(result) => {
+                match result.status.as_str() {
+                    "Complete" => {
+                        let events: Vec<aws::cloudwatch::LogEvent> = result
+                            .rows
+                            .iter()
+                            .map(|row| {
+                                let ts_str = row.get("@timestamp").map(|s| s.as_str()).unwrap_or("");
+                                let msg = row.get("@message").map(|s| s.as_str()).unwrap_or("");
+                                let timestamp = parse_insights_timestamp(ts_str);
+                                aws::cloudwatch::LogEvent {
+                                    timestamp,
+                                    message: msg.to_string(),
+                                }
+                            })
+                            .collect();
+                        let count = events.len();
+                        app.cloudwatch_view.insights_status = Some(format!("Complete — {} results", count));
+                        app.cloudwatch_view.enter_insights_results(events);
+                        return;
+                    }
+                    "Failed" | "Cancelled" | "Timeout" => {
+                        app.cloudwatch_view.insights_status =
+                            Some(format!("Query {}", result.status));
+                        app.cloudwatch_view.loading = false;
+                        let _ = terminal.draw(|frame| ui::render(app, frame));
+                        return;
+                    }
+                    _ => {
+                        app.cloudwatch_view.insights_status =
+                            Some(format!("Running... ({} rows so far)", result.rows.len()));
+                        let _ = terminal.draw(|frame| ui::render(app, frame));
+                    }
+                }
+            }
+            Err(e) => {
+                app.cloudwatch_view.insights_status = Some(format!("Error: {}", e));
+                app.cloudwatch_view.loading = false;
+                let _ = terminal.draw(|frame| ui::render(app, frame));
+                return;
+            }
+        }
+    }
+}
+
+fn parse_insights_timestamp(ts_str: &str) -> i64 {
+    // Try to parse ISO 8601 format from Insights (e.g. "2026-03-15 21:48:30.486")
+    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(ts_str, "%Y-%m-%d %H:%M:%S%.f") {
+        return dt.and_utc().timestamp_millis();
+    }
+    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(ts_str, "%Y-%m-%d %H:%M:%S") {
+        return dt.and_utc().timestamp_millis();
+    }
+    0
 }
 
 async fn handle_secrets_enter(app: &mut App) {

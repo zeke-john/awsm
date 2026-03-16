@@ -6,8 +6,8 @@ use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 
 pub fn render_help(frame: &mut Frame, scroll: &mut u16) {
     let full = frame.area();
-    let width = 48u16.min(full.width);
-    let height = 40u16.min(full.height.saturating_sub(2));
+    let width = 38u16.min(full.width);
+    let height = 24u16.min(full.height.saturating_sub(2));
 
     let area = Rect {
         x: full.width.saturating_sub(width).saturating_sub(1),
@@ -118,6 +118,12 @@ pub fn render_help(frame: &mut Frame, scroll: &mut u16) {
             desc_style,
         ),
         Line::from(""),
+        Line::from(Span::styled(" CloudWatch", header_style)),
+        help_line(" Space", "select groups", key_style, arrow_style, desc_style),
+        help_line(" f", "search log group", key_style, arrow_style, desc_style),
+        help_line(" i", "insights query", key_style, arrow_style, desc_style),
+        help_line(" r", "refresh", key_style, arrow_style, desc_style),
+        Line::from(""),
         Line::from(Span::styled(" S3", header_style)),
         help_line(" d", "download file", key_style, arrow_style, desc_style),
         Line::from(""),
@@ -155,8 +161,8 @@ pub fn render_help(frame: &mut Frame, scroll: &mut u16) {
 
 fn help_line<'a>(key: &'a str, desc: &'a str, ks: Style, arrow: Style, ds: Style) -> Line<'a> {
     Line::from(vec![
-        Span::styled(format!(" {:<13}", key.trim()), ks),
-        Span::styled("→  ", arrow),
+        Span::styled(format!(" {:<11}", key.trim()), ks),
+        Span::styled("→ ", arrow),
         Span::styled(desc, ds),
     ])
 }

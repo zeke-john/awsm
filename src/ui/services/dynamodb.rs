@@ -36,6 +36,7 @@ pub struct DynamoDbView {
     visible_columns: Vec<String>,
     col_offset: usize,
     selected: usize,
+    tables_list_state: ListState,
     loading: bool,
     error: Option<String>,
     filter: String,
@@ -81,6 +82,7 @@ impl Default for DynamoDbView {
             visible_columns: Vec::new(),
             col_offset: 0,
             selected: 0,
+            tables_list_state: ListState::default(),
             loading: true,
             error: None,
             filter: String::new(),
@@ -120,6 +122,7 @@ impl DynamoDbView {
         self.loading = false;
         self.error = None;
         self.selected = 0;
+        self.tables_list_state = ListState::default();
     }
 
     pub fn set_error(&mut self, error: String) {
@@ -819,7 +822,7 @@ impl ServiceComponent for DynamoDbView {
 }
 
 impl DynamoDbView {
-    fn render_tables(&self, frame: &mut Frame, area: Rect) {
+    fn render_tables(&mut self, frame: &mut Frame, area: Rect) {
         if self.loading {
             let p = Paragraph::new(Span::styled(
                 "  Loading tables...",
@@ -883,7 +886,7 @@ impl DynamoDbView {
             }
         };
 
-        let mut items: Vec<ListItem> = vec![ListItem::new(Line::from(vec![
+        let header = Paragraph::new(Line::from(vec![
             Span::styled(
                 format!(
                     "  {:<width$}",
@@ -916,7 +919,17 @@ impl DynamoDbView {
                 ),
                 hdr_style(3),
             ),
-        ]))];
+        ]));
+        let header_area = Rect { height: 1, ..area };
+        frame.render_widget(header, header_area);
+
+        let data_area = Rect {
+            y: area.y + 1,
+            height: area.height.saturating_sub(1),
+            ..area
+        };
+
+        let mut items: Vec<ListItem> = Vec::new();
 
         for (i, table) in filtered.iter().enumerate() {
             let is_selected = i == self.selected;
@@ -957,8 +970,13 @@ impl DynamoDbView {
         }
 
         let list = List::new(items);
-        let mut state = ListState::default().with_selected(Some(self.selected + 1));
-        frame.render_stateful_widget(list, area, &mut state);
+        self.tables_list_state.select(Some(self.selected));
+        let render_area = if self.filtering {
+            Rect { height: data_area.height.saturating_sub(1), ..data_area }
+        } else {
+            data_area
+        };
+        frame.render_stateful_widget(list, render_area, &mut self.tables_list_state);
 
         if self.filtering {
             self.render_filter(frame, area);

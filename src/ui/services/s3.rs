@@ -53,6 +53,7 @@ pub struct S3View {
     pub detail: Option<ObjectDetail>,
     pub detail_scroll: u16,
     selected: usize,
+    list_state: ListState,
     bucket_name: String,
     prefix: String,
     prefix_stack: Vec<String>,
@@ -76,6 +77,7 @@ impl Default for S3View {
             detail: None,
             detail_scroll: 0,
             selected: 0,
+            list_state: ListState::default(),
             bucket_name: String::new(),
             prefix: String::new(),
             prefix_stack: Vec::new(),
@@ -98,6 +100,7 @@ impl S3View {
         self.loading = false;
         self.error = None;
         self.selected = 0;
+        self.list_state = ListState::default();
     }
 
     pub fn set_objects(&mut self, objects: Vec<ObjectInfo>) {
@@ -105,6 +108,7 @@ impl S3View {
         self.loading = false;
         self.error = None;
         self.selected = 0;
+        self.list_state = ListState::default();
     }
 
     pub fn set_error(&mut self, error: String) {
@@ -123,6 +127,7 @@ impl S3View {
         self.prefix_stack.clear();
         self.screen = S3Screen::Objects;
         self.selected = 0;
+        self.list_state = ListState::default();
         self.loading = true;
         self.filter.clear();
         self.filtering = false;
@@ -148,6 +153,7 @@ impl S3View {
         self.prefix_stack.push(self.prefix.clone());
         self.prefix = prefix;
         self.selected = 0;
+        self.list_state = ListState::default();
         self.loading = true;
         self.filter.clear();
         self.filtering = false;
@@ -459,7 +465,7 @@ impl ServiceComponent for S3View {
 }
 
 impl S3View {
-    fn render_buckets(&self, frame: &mut Frame, area: Rect) {
+    fn render_buckets(&mut self, frame: &mut Frame, area: Rect) {
         if self.loading {
             let p = Paragraph::new(Span::styled(
                 "  Loading buckets...",
@@ -514,7 +520,7 @@ impl S3View {
         };
         let active_hdr = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
 
-        let mut items: Vec<ListItem> = vec![ListItem::new(Line::from(vec![
+        let header = Paragraph::new(Line::from(vec![
             Span::styled(
                 format!("  {:<width$}", name_hdr, width = name_col),
                 if self.sort_column == SortColumn::Name { active_hdr } else { header_style },
@@ -523,7 +529,17 @@ impl S3View {
                 format!("{:>width$}", date_hdr, width = date_col),
                 if self.sort_column == SortColumn::Modified { active_hdr } else { header_style },
             ),
-        ]))];
+        ]));
+        let header_area = Rect { height: 1, ..area };
+        frame.render_widget(header, header_area);
+
+        let data_area = Rect {
+            y: area.y + 1,
+            height: area.height.saturating_sub(1),
+            ..area
+        };
+
+        let mut items: Vec<ListItem> = Vec::new();
 
         for (i, bucket) in filtered.iter().enumerate() {
             let is_selected = i == self.selected;
@@ -551,15 +567,20 @@ impl S3View {
         }
 
         let list = List::new(items);
-        let mut state = ListState::default().with_selected(Some(self.selected + 1));
-        frame.render_stateful_widget(list, area, &mut state);
+        self.list_state.select(Some(self.selected));
+        let render_area = if self.filtering {
+            Rect { height: data_area.height.saturating_sub(1), ..data_area }
+        } else {
+            data_area
+        };
+        frame.render_stateful_widget(list, render_area, &mut self.list_state);
 
         if self.filtering {
             self.render_filter(frame, area);
         }
     }
 
-    fn render_objects(&self, frame: &mut Frame, area: Rect) {
+    fn render_objects(&mut self, frame: &mut Frame, area: Rect) {
         if self.loading {
             let p = Paragraph::new(Span::styled(
                 "  Loading...",
@@ -620,7 +641,7 @@ impl S3View {
         };
         let active_hdr = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
 
-        let mut items: Vec<ListItem> = vec![ListItem::new(Line::from(vec![
+        let header = Paragraph::new(Line::from(vec![
             Span::styled(
                 format!("  {:<width$}", name_hdr, width = name_col),
                 if self.sort_column == SortColumn::Name { active_hdr } else { header_style },
@@ -633,7 +654,17 @@ impl S3View {
                 format!("{:>width$}  ", mod_hdr, width = date_col),
                 if self.sort_column == SortColumn::Modified { active_hdr } else { header_style },
             ),
-        ]))];
+        ]));
+        let header_area = Rect { height: 1, ..area };
+        frame.render_widget(header, header_area);
+
+        let data_area = Rect {
+            y: area.y + 1,
+            height: area.height.saturating_sub(1),
+            ..area
+        };
+
+        let mut items: Vec<ListItem> = Vec::new();
 
         for (i, obj) in filtered.iter().enumerate() {
             let is_selected = i == self.selected;
@@ -668,8 +699,13 @@ impl S3View {
         }
 
         let list = List::new(items);
-        let mut state = ListState::default().with_selected(Some(self.selected + 1));
-        frame.render_stateful_widget(list, area, &mut state);
+        self.list_state.select(Some(self.selected));
+        let render_area = if self.filtering {
+            Rect { height: data_area.height.saturating_sub(1), ..data_area }
+        } else {
+            data_area
+        };
+        frame.render_stateful_widget(list, render_area, &mut self.list_state);
 
         if self.filtering {
             self.render_filter(frame, area);

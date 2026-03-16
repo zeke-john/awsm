@@ -1,5 +1,6 @@
 use crate::aws::AwsClients;
 use crate::keys::{Focus, Mode, Service};
+use crate::ui::services::cloudwatch::CloudWatchView;
 use crate::ui::services::dynamodb::DynamoDbView;
 use crate::ui::services::lambda::LambdaView;
 use crate::ui::services::s3::S3View;
@@ -28,6 +29,12 @@ pub enum Action {
     DdbNextPage,
     DdbSwitchIndex,
     DdbRunQuery,
+    CwLoadEvents,
+    CwNextPage,
+    CwRefresh,
+    CwRunSearch,
+    CwRunInsights,
+    CwSearchNextPage,
     ToggleSidebar,
     None,
 }
@@ -57,6 +64,7 @@ pub struct App {
     pub s3_view: S3View,
     pub dynamodb_view: DynamoDbView,
     pub lambda_view: LambdaView,
+    pub cloudwatch_view: CloudWatchView,
     pub secrets_view: SecretsManagerView,
     pub command_input: String,
 }
@@ -95,6 +103,7 @@ impl App {
             s3_view: S3View::default(),
             dynamodb_view: DynamoDbView::default(),
             lambda_view: LambdaView::default(),
+            cloudwatch_view: CloudWatchView::default(),
             secrets_view: SecretsManagerView::default(),
             command_input: String::new(),
         }
@@ -162,6 +171,8 @@ impl App {
             Action::ServiceEnter | Action::ServiceBack
             | Action::S3Download | Action::S3CopyUri | Action::S3CopyArn
             | Action::DdbNextPage | Action::DdbSwitchIndex | Action::DdbRunQuery
+            | Action::CwLoadEvents | Action::CwNextPage | Action::CwRefresh
+            | Action::CwRunSearch | Action::CwRunInsights | Action::CwSearchNextPage
             | Action::None => {}
         }
     }
