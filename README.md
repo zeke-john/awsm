@@ -2,7 +2,7 @@
 
 > _pronounced "awesome"!_
 
-awsm (AWS Manager) is a Vim Motions based TUI for the AWS Console. You can view your AWS resources in a Neovim stlye interface, without leaving the terminal.
+A Vim Motions based TUI for the AWS Console. You can view your AWS resources in a Neovim stlye interface, without leaving the terminal.
 
 Everything is also only read-only, so theres no way to delete/modify resources currently. In the future, i may add write/delete functionality. Please feel free to open an issue or a PR if you would like to see this!
 
