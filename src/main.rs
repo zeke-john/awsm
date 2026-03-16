@@ -11,6 +11,7 @@ use std::io;
 use std::panic;
 use std::time::Duration;
 
+use clap::Parser;
 use crossterm::event::{KeyCode, KeyModifiers};
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{cursor, execute};
@@ -22,8 +23,22 @@ use event::{Event, EventHandler};
 use keys::{Focus, Mode, Service};
 use ui::services::ServiceComponent;
 
+#[derive(Parser)]
+#[command(name = "awsm", about = "Neovim-inspired, read-only TUI for AWS")]
+struct Cli {
+    /// AWS profile to use (skips profile picker)
+    #[arg(short, long)]
+    profile: Option<String>,
+
+    /// AWS region to use (e.g. us-east-1)
+    #[arg(short, long)]
+    region: Option<String>,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
     let prev_hook = panic::take_hook();
     panic::set_hook(Box::new(move |info| {
         let _ = terminal::disable_raw_mode();
@@ -37,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
 
     let backend = CrosstermBackend::new(stderr);
     let mut terminal = Terminal::new(backend)?;
-    let mut app = App::new();
+    let mut app = App::new(cli.profile, cli.region);
     let mut events = EventHandler::new(Duration::from_millis(250));
 
     if app.screen == Screen::Main {

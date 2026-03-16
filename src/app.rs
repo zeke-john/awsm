@@ -70,11 +70,13 @@ pub struct App {
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub fn new(cli_profile: Option<String>, cli_region: Option<String>) -> Self {
         let profiles = crate::aws::list_profiles();
         let env_profile = std::env::var("AWS_PROFILE").ok();
 
-        let (screen, profile, profile_selected) = if let Some(ref p) = env_profile {
+        let (screen, profile, profile_selected) = if let Some(p) = cli_profile {
+            (Screen::Main, p, 0)
+        } else if let Some(ref p) = env_profile {
             (Screen::Main, p.clone(), 0)
         } else if profiles.len() == 1 {
             (Screen::Main, profiles[0].clone(), 0)
@@ -96,7 +98,7 @@ impl App {
             show_sidebar: true,
             aws: None,
             aws_error: None,
-            region: String::new(),
+            region: cli_region.unwrap_or_default(),
             profile,
             available_profiles: profiles,
             profile_selected,
