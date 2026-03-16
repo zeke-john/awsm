@@ -2041,12 +2041,7 @@ impl DynamoDbView {
         lines.push(Line::from(""));
 
         if let Some(ref json) = self.detail_json {
-            for line in json.lines() {
-                lines.push(Line::from(Span::styled(
-                    line.to_string(),
-                    Style::default().fg(Color::Gray),
-                )));
-            }
+            lines.extend(crate::ui::highlight_json(json));
         }
 
         let width = inner.width.max(1) as usize;

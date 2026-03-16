@@ -839,11 +839,23 @@ impl S3View {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled("Content", header_style)));
             lines.push(Line::from(""));
-            for line in content.lines() {
-                lines.push(Line::from(Span::styled(
-                    line.to_string(),
-                    Style::default().fg(Color::Gray),
-                )));
+
+            let is_json = detail.content_type.contains("json")
+                || detail.key.ends_with(".json");
+            if is_json {
+                // try to pretty-print if it's compact JSON, then highlight
+                let formatted = serde_json::from_str::<serde_json::Value>(content)
+                    .ok()
+                    .and_then(|v| serde_json::to_string_pretty(&v).ok());
+                let json_str = formatted.as_deref().unwrap_or(content);
+                lines.extend(crate::ui::highlight_json(json_str));
+            } else {
+                for line in content.lines() {
+                    lines.push(Line::from(Span::styled(
+                        line.to_string(),
+                        Style::default().fg(Color::Gray),
+                    )));
+                }
             }
         } else {
             lines.push(Line::from(""));

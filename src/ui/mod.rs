@@ -14,6 +14,115 @@ use crate::app::{App, Screen};
 use crate::keys::Service;
 use crate::ui::services::ServiceComponent;
 
+/// Syntax-highlight a pretty-printed JSON string into styled ratatui Lines.
+pub fn highlight_json(json: &str) -> Vec<Line<'static>> {
+    let key_style = Style::default().fg(Color::Cyan);
+    let string_style = Style::default().fg(Color::Green);
+    let number_style = Style::default().fg(Color::Yellow);
+    let bool_null_style = Style::default().fg(Color::Magenta);
+    let brace_style = Style::default().fg(Color::White);
+    let punct_style = Style::default().fg(Color::DarkGray);
+
+    json.lines()
+        .map(|line| {
+            let mut spans: Vec<Span<'static>> = Vec::new();
+            let chars: Vec<char> = line.chars().collect();
+            let len = chars.len();
+            let mut i = 0;
+
+            // leading whitespace
+            while i < len && chars[i] == ' ' {
+                i += 1;
+            }
+            if i > 0 {
+                spans.push(Span::raw(" ".repeat(i)));
+            }
+
+            // track whether first string on this line is a key (followed by `:`)
+            let mut seen_key = false;
+
+            while i < len {
+                let ch = chars[i];
+                match ch {
+                    '"' => {
+                        // collect the full string including quotes
+                        let start = i;
+                        i += 1;
+                        while i < len && chars[i] != '"' {
+                            if chars[i] == '\\' {
+                                i += 1; // skip escaped char
+                            }
+                            i += 1;
+                        }
+                        if i < len {
+                            i += 1; // closing quote
+                        }
+                        let s: String = chars[start..i].iter().collect();
+
+                        // determine if this is a key: look ahead for `:`
+                        let mut j = i;
+                        while j < len && chars[j] == ' ' {
+                            j += 1;
+                        }
+                        let is_key = !seen_key && j < len && chars[j] == ':';
+                        if is_key {
+                            spans.push(Span::styled(s, key_style));
+                            seen_key = true;
+                        } else {
+                            spans.push(Span::styled(s, string_style));
+                        }
+                    }
+                    '{' | '}' | '[' | ']' => {
+                        spans.push(Span::styled(String::from(ch), brace_style));
+                        i += 1;
+                    }
+                    ':' | ',' => {
+                        spans.push(Span::styled(String::from(ch), punct_style));
+                        i += 1;
+                    }
+                    _ if ch.is_ascii_digit() || ch == '-' || ch == '.' => {
+                        let start = i;
+                        while i < len
+                            && (chars[i].is_ascii_digit()
+                                || chars[i] == '.'
+                                || chars[i] == '-'
+                                || chars[i] == 'e'
+                                || chars[i] == 'E'
+                                || chars[i] == '+')
+                        {
+                            i += 1;
+                        }
+                        let s: String = chars[start..i].iter().collect();
+                        spans.push(Span::styled(s, number_style));
+                    }
+                    't' | 'f' | 'n' => {
+                        // true, false, null
+                        let start = i;
+                        while i < len && chars[i].is_ascii_alphabetic() {
+                            i += 1;
+                        }
+                        let s: String = chars[start..i].iter().collect();
+                        spans.push(Span::styled(s, bool_null_style));
+                    }
+                    ' ' => {
+                        let start = i;
+                        while i < len && chars[i] == ' ' {
+                            i += 1;
+                        }
+                        spans.push(Span::raw(" ".repeat(i - start)));
+                    }
+                    _ => {
+                        spans.push(Span::raw(String::from(ch)));
+                        i += 1;
+                    }
+                }
+            }
+
+            Line::from(spans)
+        })
+        .collect()
+}
+
 pub fn render(app: &mut App, frame: &mut Frame) {
     match app.screen {
         Screen::ProfilePicker => render_profile_picker(app, frame),
