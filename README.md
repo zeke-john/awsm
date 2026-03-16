@@ -1,8 +1,10 @@
 # awsm
 
-A Vim based TUI for the AWS Console. You can view your AWS resources in the style of Neovim, without leaving the terminal.
+_pronounced "awesome"!_
 
-Everything is also only read-only, so theres no way to delete/modify resources currently. In the future, i may add write/delete functionality. Please feel free to open an issue or PR if you would like to see this so we can discuss the best way to implement it!
+awsm (AWS Manager) is a Vim Motions based TUI for the AWS Console. You can view your AWS resources in a Neovim stlye interface, without leaving the terminal.
+
+Everything is also only read-only, so theres no way to delete/modify resources currently. In the future, i may add write/delete functionality. Please feel free to open an issue or a PR if you would like to see this!
 
 ## Install
 
@@ -43,7 +45,7 @@ I tried to make each service match all the functionality of the AWS Console, but
 | CloudWatch | Log groups, streams, events, time range selector, Logs Insights queries |
 | Secrets Manager | Secrets list, masked/revealed values, JSON pretty-print, rotation config |
 
-Currently these are the only services available, but i do plan to add more in the future (SQS, ECS, Amplify, etc.)... If there is a specific service you would like to see, please open an issue or PR so we can discuss!
+Currently these are the only services available, but i do plan to add more in the future (SQS, ECS, Amplify, etc.)... If there is a specific service you would like to see, please open an issue or a PR so we can discuss!
 
 ## Keybindings
 
@@ -80,7 +82,15 @@ All of these are avilable w/ the help menu, which you can open with `?` from any
 |-----|---------|--------|
 | `q` | DynamoDB items | Open query builder |
 | `i` | DynamoDB items | Switch index |
+| `X` | DynamoDB items | Clear query |
+| `a` / `d` | DynamoDB query builder | Add / delete filter |
+| `l` / `h` | DynamoDB items | Scroll columns |
+| `+` / `-` | DynamoDB items | Resize columns |
+| `0` | DynamoDB items | Reset column width |
+| `Space` | CloudWatch groups | Select groups |
+| `f` | CloudWatch groups | Search log group |
 | `i` | CloudWatch groups | Open Logs Insights |
+| `r` | CloudWatch | Refresh |
 | `t` / `T` | CloudWatch events | Cycle time range |
 | `d` | S3 file detail | Download to ~/Downloads |
 | `s` | Secrets detail | Toggle secret value visibility |
