@@ -211,14 +211,18 @@ impl DynamoDbView {
 
     pub fn has_next_page(&self) -> bool {
         self.current_page + 1 < self.all_pages.len()
-            || self.all_pages.last()
+            || self
+                .all_pages
+                .last()
                 .and_then(|p| p.last_key.as_ref())
                 .is_some()
     }
 
     pub fn needs_fetch_next_page(&self) -> bool {
         self.current_page + 1 >= self.all_pages.len()
-            && self.all_pages.last()
+            && self
+                .all_pages
+                .last()
                 .and_then(|p| p.last_key.as_ref())
                 .is_some()
     }
@@ -229,8 +233,15 @@ impl DynamoDbView {
 
     pub fn page_info(&self) -> (usize, usize) {
         let current = self.current_page + 1;
-        let page_size = self.items_result.as_ref().map(|r| r.items.len()).unwrap_or(300).max(1);
-        let total = self.table_detail.as_ref()
+        let page_size = self
+            .items_result
+            .as_ref()
+            .map(|r| r.items.len())
+            .unwrap_or(300)
+            .max(1);
+        let total = self
+            .table_detail
+            .as_ref()
             .map(|d| ((d.item_count as usize) + page_size - 1) / page_size)
             .unwrap_or(self.all_pages.len());
         (current, total.max(1))
@@ -240,25 +251,42 @@ impl DynamoDbView {
         let mut ordered = Vec::new();
 
         if let Some(ref detail) = self.table_detail {
-            let (pk, sk) = if let Some(ref idx_name) = self.active_index {
-                if let Some(idx) = detail.indexes.iter().find(|i| &i.name == idx_name) {
-                    (idx.partition_key.clone(), idx.sort_key.clone())
-                } else {
-                    (detail.partition_key.clone(), detail.sort_key.clone())
-                }
-            } else {
-                (detail.partition_key.clone(), detail.sort_key.clone())
-            };
+            // matching the AWS console column order ->
+            // 1. Table PK (always first / sticky column)
+            // 2. Index PK (if on a GSI and different from table PK)
+            // 3. Index SK (if on a GSI)
+            // 4. Table SK (if different from above)
+            // 5. all the other columns yuh
 
-            if columns.contains(&pk) {
-                ordered.push(pk.clone());
+            // 1. Table PK always first (sticky)
+            if columns.contains(&detail.partition_key) {
+                ordered.push(detail.partition_key.clone());
             }
-            if let Some(ref sk_name) = sk {
-                if columns.contains(sk_name) {
+
+            if let Some(ref idx_name) = self.active_index {
+                if let Some(idx) = detail.indexes.iter().find(|i| &i.name == idx_name) {
+                    // 2. Index PK
+                    if columns.contains(&idx.partition_key) && !ordered.contains(&idx.partition_key)
+                    {
+                        ordered.push(idx.partition_key.clone());
+                    }
+                    // 3. Index SK
+                    if let Some(ref sk) = idx.sort_key {
+                        if columns.contains(sk) && !ordered.contains(sk) {
+                            ordered.push(sk.clone());
+                        }
+                    }
+                }
+            }
+
+            // 4. Table SK
+            if let Some(ref sk_name) = detail.sort_key {
+                if columns.contains(sk_name) && !ordered.contains(sk_name) {
                     ordered.push(sk_name.clone());
                 }
             }
 
+            // 5. Remaining columns in original order
             for col in columns {
                 if !ordered.contains(col) {
                     ordered.push(col.clone());
@@ -302,7 +330,8 @@ impl DynamoDbView {
     }
 
     pub fn filter_tuples(&self) -> Vec<(String, String, String)> {
-        self.query_filters.iter()
+        self.query_filters
+            .iter()
             .filter(|f| !f.attribute.is_empty() && !f.value.is_empty())
             .map(|f| (f.attribute.clone(), f.condition.clone(), f.value.clone()))
             .collect()
@@ -553,8 +582,11 @@ impl ServiceComponent for DynamoDbView {
         }
 
         if self.index_picker_open {
-            let index_count = 1 + self.table_detail.as_ref()
-                .map(|d| d.indexes.len()).unwrap_or(0);
+            let index_count = 1 + self
+                .table_detail
+                .as_ref()
+                .map(|d| d.indexes.len())
+                .unwrap_or(0);
             match key.code {
                 KeyCode::Char('j') | KeyCode::Down => {
                     if self.index_picker_selected + 1 < index_count {
@@ -757,12 +789,12 @@ impl ServiceComponent for DynamoDbView {
                     let current_idx = self.active_index.as_deref();
                     self.index_picker_selected = match current_idx {
                         None => 0,
-                        Some(name) => {
-                            self.table_detail.as_ref()
-                                .and_then(|d| d.indexes.iter().position(|i| i.name == name))
-                                .map(|pos| pos + 1)
-                                .unwrap_or(0)
-                        }
+                        Some(name) => self
+                            .table_detail
+                            .as_ref()
+                            .and_then(|d| d.indexes.iter().position(|i| i.name == name))
+                            .map(|pos| pos + 1)
+                            .unwrap_or(0),
                     };
                 }
             }
@@ -972,7 +1004,10 @@ impl DynamoDbView {
         let list = List::new(items);
         self.tables_list_state.select(Some(self.selected));
         let render_area = if self.filtering {
-            Rect { height: data_area.height.saturating_sub(1), ..data_area }
+            Rect {
+                height: data_area.height.saturating_sub(1),
+                ..data_area
+            }
         } else {
             data_area
         };
@@ -1163,7 +1198,10 @@ impl DynamoDbView {
         }
 
         if has_more_right {
-            hdr_spans.push(Span::styled("›", Style::default().fg(Color::DarkGray).bg(header_bg)));
+            hdr_spans.push(Span::styled(
+                "›",
+                Style::default().fg(Color::DarkGray).bg(header_bg),
+            ));
         }
 
         // Fill rest of header line with header bg
@@ -1348,10 +1386,7 @@ impl DynamoDbView {
                     )
                 };
 
-            info_spans.push(Span::styled(
-                format!(" {}:{}", pk, pk_type),
-                orange,
-            ));
+            info_spans.push(Span::styled(format!(" {}:{}", pk, pk_type), orange));
             if let Some(sk_name) = sk {
                 let skt = sk_type.unwrap_or("S");
                 info_spans.push(Span::styled(format!(" {}:{}", sk_name, skt), orange));
@@ -1373,15 +1408,9 @@ impl DynamoDbView {
                 orange,
             ));
             info_spans.push(Span::styled(" │ ", sep_style));
-            info_spans.push(Span::styled(
-                format!("Page {}/{}", page, total),
-                orange,
-            ));
+            info_spans.push(Span::styled(format!("Page {}/{}", page, total), orange));
             if self.has_next_page() || self.current_page > 0 {
-                info_spans.push(Span::styled(
-                    " (n/N)",
-                    Style::default().fg(Color::DarkGray),
-                ));
+                info_spans.push(Span::styled(" (n/N)", Style::default().fg(Color::DarkGray)));
             }
         }
 
@@ -1439,15 +1468,22 @@ impl DynamoDbView {
 
         // Table (Primary)
         let pk_info = format!("{}:{}", detail.partition_key, detail.partition_key_type);
-        let sk_info = detail.sort_key.as_ref().map(|sk| {
-            let sk_type = detail.sort_key_type.as_deref().unwrap_or("S");
-            format!(" {}:{}", sk, sk_type)
-        }).unwrap_or_default();
+        let sk_info = detail
+            .sort_key
+            .as_ref()
+            .map(|sk| {
+                let sk_type = detail.sort_key_type.as_deref().unwrap_or("S");
+                format!(" {}:{}", sk, sk_type)
+            })
+            .unwrap_or_default();
         let marker = if is_active(0) { "● " } else { "  " };
         let label = format!("{}Table (Primary)", marker);
         let keys = format!("{}{}", pk_info, sk_info);
         let style = if self.index_picker_selected == 0 {
-            Style::default().fg(Color::White).bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD)
         } else if is_active(0) {
             Style::default().fg(Color::Cyan)
         } else {
@@ -1456,7 +1492,10 @@ impl DynamoDbView {
         let inner_w = picker_width.saturating_sub(2) as usize;
         let keys_w = inner_w.saturating_sub(label.len()).saturating_sub(1);
         items.push(ListItem::new(Line::from(vec![
-            Span::styled(format!(" {:<pad$}", label, pad = inner_w - keys_w - 1), style),
+            Span::styled(
+                format!(" {:<pad$}", label, pad = inner_w - keys_w - 1),
+                style,
+            ),
             Span::styled(format!("{:>width$} ", keys, width = keys_w), style),
         ])));
 
@@ -1466,13 +1505,20 @@ impl DynamoDbView {
             let marker = if is_active(row_idx) { "● " } else { "  " };
             let label = format!("{}{}", marker, idx.name);
             let pk_info = format!("{}:{}", idx.partition_key, idx.partition_key_type);
-            let sk_info = idx.sort_key.as_ref().map(|sk| {
-                let sk_type = idx.sort_key_type.as_deref().unwrap_or("S");
-                format!(" {}:{}", sk, sk_type)
-            }).unwrap_or_default();
+            let sk_info = idx
+                .sort_key
+                .as_ref()
+                .map(|sk| {
+                    let sk_type = idx.sort_key_type.as_deref().unwrap_or("S");
+                    format!(" {}:{}", sk, sk_type)
+                })
+                .unwrap_or_default();
             let keys = format!("{}{}", pk_info, sk_info);
             let style = if self.index_picker_selected == row_idx {
-                Style::default().fg(Color::White).bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::White)
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD)
             } else if is_active(row_idx) {
                 Style::default().fg(Color::Cyan)
             } else {
@@ -1480,14 +1526,21 @@ impl DynamoDbView {
             };
             let keys_w = inner_w.saturating_sub(label.len()).saturating_sub(1);
             items.push(ListItem::new(Line::from(vec![
-                Span::styled(format!(" {:<pad$}", label, pad = inner_w - keys_w - 1), style),
+                Span::styled(
+                    format!(" {:<pad$}", label, pad = inner_w - keys_w - 1),
+                    style,
+                ),
                 Span::styled(format!("{:>width$} ", keys, width = keys_w), style),
             ])));
         }
 
         let block = ratatui::widgets::Block::default()
             .title(" Select Index ")
-            .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
+            .title_style(
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )
             .borders(ratatui::widgets::Borders::ALL)
             .border_style(Style::default().fg(Color::Rgb(100, 100, 100)))
             .style(Style::default().bg(Color::Rgb(30, 30, 40)));
@@ -1504,10 +1557,13 @@ impl DynamoDbView {
     }
 
     fn qb_has_sk(&self) -> bool {
-        self.table_detail.as_ref()
+        self.table_detail
+            .as_ref()
             .and_then(|d| {
                 if let Some(ref idx) = self.active_index {
-                    d.indexes.iter().find(|i| &i.name == idx)
+                    d.indexes
+                        .iter()
+                        .find(|i| &i.name == idx)
                         .and_then(|i| i.sort_key.as_ref())
                 } else {
                     d.sort_key.as_ref()
@@ -1522,10 +1578,18 @@ impl DynamoDbView {
         let f = self.query_builder_field;
         let has_sk = self.qb_has_sk();
         let base = if has_sk { 4 } else { 2 };
-        if f == 0 { return (0, 0, 0); }
-        if f == 1 { return (1, 0, 0); }
-        if has_sk && f == 2 { return (2, 0, 0); }
-        if has_sk && f == 3 { return (3, 0, 0); }
+        if f == 0 {
+            return (0, 0, 0);
+        }
+        if f == 1 {
+            return (1, 0, 0);
+        }
+        if has_sk && f == 2 {
+            return (2, 0, 0);
+        }
+        if has_sk && f == 3 {
+            return (3, 0, 0);
+        }
         let filter_offset = f - base;
         let filter_idx = filter_offset / 3;
         let sub = filter_offset % 3;
@@ -1545,24 +1609,28 @@ impl DynamoDbView {
                 KeyCode::Esc | KeyCode::Enter => {
                     self.query_builder_editing = false;
                 }
-                KeyCode::Backspace => {
-                    match ft {
-                        1 => { self.query_pk_value.pop(); }
-                        3 => { self.query_sk_value.pop(); }
-                        4 if sub == 0 => { self.query_filters[fi].attribute.pop(); }
-                        4 if sub == 2 => { self.query_filters[fi].value.pop(); }
-                        _ => {}
+                KeyCode::Backspace => match ft {
+                    1 => {
+                        self.query_pk_value.pop();
                     }
-                }
-                KeyCode::Char(c) => {
-                    match ft {
-                        1 => self.query_pk_value.push(c),
-                        3 => self.query_sk_value.push(c),
-                        4 if sub == 0 => self.query_filters[fi].attribute.push(c),
-                        4 if sub == 2 => self.query_filters[fi].value.push(c),
-                        _ => {}
+                    3 => {
+                        self.query_sk_value.pop();
                     }
-                }
+                    4 if sub == 0 => {
+                        self.query_filters[fi].attribute.pop();
+                    }
+                    4 if sub == 2 => {
+                        self.query_filters[fi].value.pop();
+                    }
+                    _ => {}
+                },
+                KeyCode::Char(c) => match ft {
+                    1 => self.query_pk_value.push(c),
+                    3 => self.query_sk_value.push(c),
+                    4 if sub == 0 => self.query_filters[fi].attribute.push(c),
+                    4 if sub == 2 => self.query_filters[fi].value.push(c),
+                    _ => {}
+                },
                 _ => {}
             }
             return Some(Action::None);
@@ -1586,16 +1654,23 @@ impl DynamoDbView {
                     1 | 3 => self.query_builder_editing = true,
                     2 => {
                         let conditions = ["=", "begins_with", ">", "<", ">=", "<="];
-                        let cur = conditions.iter().position(|c| *c == self.query_sk_condition)
+                        let cur = conditions
+                            .iter()
+                            .position(|c| *c == self.query_sk_condition)
                             .unwrap_or(0);
-                        self.query_sk_condition = conditions[(cur + 1) % conditions.len()].to_string();
+                        self.query_sk_condition =
+                            conditions[(cur + 1) % conditions.len()].to_string();
                     }
                     4 if sub == 0 => self.query_builder_editing = true,
                     4 if sub == 1 => {
-                        let conditions = ["=", "<>", ">", "<", ">=", "<=", "begins_with", "contains"];
-                        let cur = conditions.iter().position(|c| *c == self.query_filters[fi].condition)
+                        let conditions =
+                            ["=", "<>", ">", "<", ">=", "<=", "begins_with", "contains"];
+                        let cur = conditions
+                            .iter()
+                            .position(|c| *c == self.query_filters[fi].condition)
                             .unwrap_or(0);
-                        self.query_filters[fi].condition = conditions[(cur + 1) % conditions.len()].to_string();
+                        self.query_filters[fi].condition =
+                            conditions[(cur + 1) % conditions.len()].to_string();
                     }
                     4 if sub == 2 => self.query_builder_editing = true,
                     5 => {
@@ -1658,12 +1733,27 @@ impl DynamoDbView {
 
         let (pk_name, _pk_type, sk_name, _sk_type) = if let Some(ref idx_name) = self.active_index {
             if let Some(idx) = detail.indexes.iter().find(|i| &i.name == idx_name) {
-                (&idx.partition_key, idx.partition_key_type.as_str(), idx.sort_key.as_deref(), idx.sort_key_type.as_deref())
+                (
+                    &idx.partition_key,
+                    idx.partition_key_type.as_str(),
+                    idx.sort_key.as_deref(),
+                    idx.sort_key_type.as_deref(),
+                )
             } else {
-                (&detail.partition_key, detail.partition_key_type.as_str(), detail.sort_key.as_deref(), detail.sort_key_type.as_deref())
+                (
+                    &detail.partition_key,
+                    detail.partition_key_type.as_str(),
+                    detail.sort_key.as_deref(),
+                    detail.sort_key_type.as_deref(),
+                )
             }
         } else {
-            (&detail.partition_key, detail.partition_key_type.as_str(), detail.sort_key.as_deref(), detail.sort_key_type.as_deref())
+            (
+                &detail.partition_key,
+                detail.partition_key_type.as_str(),
+                detail.sort_key.as_deref(),
+                detail.sort_key_type.as_deref(),
+            )
         };
 
         let has_sk = sk_name.is_some();
@@ -1675,10 +1765,18 @@ impl DynamoDbView {
         let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
         let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
 
-        let popup_area = Rect { x, y, width: popup_width, height: popup_height };
+        let popup_area = Rect {
+            x,
+            y,
+            width: popup_width,
+            height: popup_height,
+        };
         frame.render_widget(ratatui::widgets::Clear, popup_area);
 
-        let sel = Style::default().fg(Color::White).bg(Color::DarkGray).add_modifier(Modifier::BOLD);
+        let sel = Style::default()
+            .fg(Color::White)
+            .bg(Color::DarkGray)
+            .add_modifier(Modifier::BOLD);
         let label_s = Style::default().fg(Color::DarkGray);
         let val_s = Style::default().fg(Color::Cyan);
         let edit_s = Style::default().fg(Color::White).bg(Color::Rgb(60, 60, 80));
@@ -1690,15 +1788,33 @@ impl DynamoDbView {
             if editing && self.query_builder_field == field_idx {
                 (format!("{}█", val), edit_s)
             } else if val.is_empty() {
-                ("(enter value)".to_string(), if self.query_builder_field == field_idx { sel } else { Style::default().fg(Color::Rgb(80, 80, 80)) })
+                (
+                    "(enter value)".to_string(),
+                    if self.query_builder_field == field_idx {
+                        sel
+                    } else {
+                        Style::default().fg(Color::Rgb(80, 80, 80))
+                    },
+                )
             } else {
-                (val.to_string(), if self.query_builder_field == field_idx { sel } else { val_s })
+                (
+                    val.to_string(),
+                    if self.query_builder_field == field_idx {
+                        sel
+                    } else {
+                        val_s
+                    },
+                )
             }
         };
 
         // Mode
         let mode_label = if self.query_mode { "Query" } else { "Scan" };
-        let mode_s = if self.query_builder_field == 0 { sel } else { val_s };
+        let mode_s = if self.query_builder_field == 0 {
+            sel
+        } else {
+            val_s
+        };
         lines.push(Line::from(vec![
             Span::styled(" Mode:  ", label_s),
             Span::styled(format!("{:<w$}", mode_label, w = iw - 8), mode_s),
@@ -1709,25 +1825,42 @@ impl DynamoDbView {
         let pk_label = format!(" {} (pk): ", pk_name);
         lines.push(Line::from(vec![
             Span::styled(&pk_label, label_s),
-            Span::styled(format!("{:<w$}", pk_disp, w = iw.saturating_sub(pk_label.len())), pk_s),
+            Span::styled(
+                format!("{:<w$}", pk_disp, w = iw.saturating_sub(pk_label.len())),
+                pk_s,
+            ),
         ]));
 
         // SK
         if has_sk {
             let sk_n = sk_name.unwrap_or("sk");
 
-            let cond_s = if self.query_builder_field == 2 { sel } else { val_s };
+            let cond_s = if self.query_builder_field == 2 {
+                sel
+            } else {
+                val_s
+            };
             let cond_label_len = sk_n.len() + 13; // " {} condition: "
             lines.push(Line::from(vec![
                 Span::styled(format!(" {} condition: ", sk_n), label_s),
-                Span::styled(format!("{:<w$}", self.query_sk_condition, w = iw.saturating_sub(cond_label_len)), cond_s),
+                Span::styled(
+                    format!(
+                        "{:<w$}",
+                        self.query_sk_condition,
+                        w = iw.saturating_sub(cond_label_len)
+                    ),
+                    cond_s,
+                ),
             ]));
 
             let (sk_disp, sk_s) = text_display(&self.query_sk_value, self.query_builder_editing, 3);
             let sk_label_len = sk_n.len() + 7; // " {} (sk): "
             lines.push(Line::from(vec![
                 Span::styled(format!(" {} (sk): ", sk_n), label_s),
-                Span::styled(format!("{:<w$}", sk_disp, w = iw.saturating_sub(sk_label_len)), sk_s),
+                Span::styled(
+                    format!("{:<w$}", sk_disp, w = iw.saturating_sub(sk_label_len)),
+                    sk_s,
+                ),
             ]));
         }
 
@@ -1741,18 +1874,29 @@ impl DynamoDbView {
             let cond_idx = attr_idx + 1;
             let val_idx = attr_idx + 2;
 
-            let (attr_disp, attr_s) = text_display(&filter.attribute, self.query_builder_editing, attr_idx);
-            let attr_disp = if filter.attribute.is_empty() && !(self.query_builder_editing && self.query_builder_field == attr_idx) {
+            let (attr_disp, attr_s) =
+                text_display(&filter.attribute, self.query_builder_editing, attr_idx);
+            let attr_disp = if filter.attribute.is_empty()
+                && !(self.query_builder_editing && self.query_builder_field == attr_idx)
+            {
                 "(attribute)".to_string()
-            } else { attr_disp };
-            let cond_s = if self.query_builder_field == cond_idx { sel } else { val_s };
-            let (val_disp, fval_s) = text_display(&filter.value, self.query_builder_editing, val_idx);
-
-            let del_s = if self.query_builder_field >= attr_idx && self.query_builder_field <= val_idx {
-                Style::default().fg(Color::Red)
             } else {
-                Style::default().fg(Color::Rgb(60, 60, 60))
+                attr_disp
             };
+            let cond_s = if self.query_builder_field == cond_idx {
+                sel
+            } else {
+                val_s
+            };
+            let (val_disp, fval_s) =
+                text_display(&filter.value, self.query_builder_editing, val_idx);
+
+            let del_s =
+                if self.query_builder_field >= attr_idx && self.query_builder_field <= val_idx {
+                    Style::default().fg(Color::Red)
+                } else {
+                    Style::default().fg(Color::Rgb(60, 60, 60))
+                };
 
             lines.push(Line::from(vec![
                 Span::styled("  ", label_s),
@@ -1760,34 +1904,63 @@ impl DynamoDbView {
                 Span::styled(" ", label_s),
                 Span::styled(format!("{:<13}", filter.condition), cond_s),
                 Span::styled(" ", label_s),
-                Span::styled(format!("{:<w$}", val_disp, w = iw.saturating_sub(37)), fval_s),
+                Span::styled(
+                    format!("{:<w$}", val_disp, w = iw.saturating_sub(37)),
+                    fval_s,
+                ),
                 Span::styled(" [d]", del_s),
             ]));
         }
 
         // Add filter
         let add_idx = base + self.query_filters.len() * 3;
-        let add_s = if self.query_builder_field == add_idx { sel } else { Style::default().fg(Color::DarkGray) };
-        lines.push(Line::from(vec![
-            Span::styled("  + Add filter", add_s),
-        ]));
+        let add_s = if self.query_builder_field == add_idx {
+            sel
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        lines.push(Line::from(vec![Span::styled("  + Add filter", add_s)]));
 
         // Footer
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
-            Span::styled(" r", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " r",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" run  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("a", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "a",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" add filter  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("d", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "d",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" del filter  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Tab", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "Tab",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" mode", Style::default().fg(Color::DarkGray)),
         ]));
 
         let block = ratatui::widgets::Block::default()
             .title(" Query Builder ")
-            .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
+            .title_style(
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )
             .borders(ratatui::widgets::Borders::ALL)
             .border_style(Style::default().fg(Color::Rgb(100, 100, 100)))
             .style(Style::default().bg(Color::Rgb(30, 30, 40)));
