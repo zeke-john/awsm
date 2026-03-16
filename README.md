@@ -1,6 +1,6 @@
 # awsm
 
-_pronounced "awesome"!_
+> _pronounced "awesome"!_
 
 awsm (AWS Manager) is a Vim Motions based TUI for the AWS Console. You can view your AWS resources in a Neovim stlye interface, without leaving the terminal.
 
