@@ -37,7 +37,8 @@ awsm -p prod -r us-west-2     # set profile and region
 
 awsm uses the standard AWS credential chain so if `aws cli` works, awsm should be ready to go. It also supports environment variables, `~/.aws/credentials`, SSO, and instance roles.
 
-![profiles](assets/profles.png)
+
+<img width="590" height="286" alt="profles" src="https://github.com/user-attachments/assets/c6ef1261-aab8-44bc-b4f3-6ad697324279" />
 
 ## Services
 
