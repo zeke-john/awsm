@@ -4,8 +4,6 @@
 
 A Vim Motions based TUI for the AWS Console. You can view your AWS resources in a Neovim stlye interface, without leaving the terminal.
 
-Everything is also only read-only, so theres no way to delete/modify resources currently. In the future, i may add write/delete functionality. Please feel free to open an issue or a PR if you would like to see this!
-
 ## Install
 
 ### Homebrew
@@ -34,6 +32,8 @@ awsm -p prod -r us-west-2     # set profile and region
 
 
 awsm uses the standard AWS credential chain so if `aws cli` works, awsm should be ready to go. It also supports environment variables, `~/.aws/credentials`, SSO, and instance roles.
+
+![profiles](assets/profles.png)
 
 ## Services
 
