@@ -2,7 +2,11 @@
 
 > _pronounced "awesome"!_
 
-A Vim Motions based TUI for the AWS Console. You can view your AWS resources in a Neovim stlye interface, without leaving the terminal.
+A Vim based TUI for the AWS Console. You can view your AWS resources in a Neovim style interface, without leaving the terminal.
+
+
+https://github.com/user-attachments/assets/980dc6e0-24d8-4ee0-8f5a-4dc995ad2ca9
+
 
 ## Install
 
