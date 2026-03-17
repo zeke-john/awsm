@@ -1,6 +1,6 @@
 # awsm
 
-> AWS Manager _pronounced "awesome"!_
+> _pronounced "awesome"!_
 
 A Vim based TUI for the AWS Console. You can view your AWS resources in a Neovim style interface, without leaving the terminal.
 
