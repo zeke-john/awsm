@@ -61,6 +61,7 @@ pub struct SecretsManagerView {
     sort_column: SortColumn,
     sort_dir: SortDir,
     show_secret: bool,
+    pub refresh_flash: u8,
 }
 
 impl Default for SecretsManagerView {
@@ -81,6 +82,7 @@ impl Default for SecretsManagerView {
             sort_column: SortColumn::Name,
             sort_dir: SortDir::Asc,
             show_secret: false,
+            refresh_flash: 0,
         }
     }
 }
@@ -252,6 +254,12 @@ impl ServiceComponent for SecretsManagerView {
                     self.pending_g = false;
                     self.show_secret = !self.show_secret;
                 }
+                KeyCode::Char('r') => {
+                    self.pending_g = false;
+                    self.loading = true;
+                    self.error = None;
+                    return Some(Action::Refresh);
+                }
                 _ => {
                     self.pending_g = false;
                 }
@@ -351,11 +359,9 @@ impl ServiceComponent for SecretsManagerView {
                 self.selected = 0;
             }
             KeyCode::Char('r') => {
-                if self.error.is_some() {
-                    self.loading = true;
-                    self.error = None;
-                    return Some(Action::ServiceBack);
-                }
+                self.loading = true;
+                self.error = None;
+                return Some(Action::Refresh);
             }
             KeyCode::Char('/') => {
                 self.filtering = true;
@@ -377,6 +383,9 @@ impl ServiceComponent for SecretsManagerView {
     }
 
     fn render(&mut self, frame: &mut Frame, area: Rect) {
+        if self.refresh_flash > 0 {
+            self.refresh_flash -= 1;
+        }
         match self.screen {
             SecretsScreen::List => self.render_list(frame, area),
             SecretsScreen::Detail => self.render_detail(frame, area),
@@ -533,7 +542,7 @@ impl SecretsManagerView {
 
         let list = List::new(items);
         self.list_state.select(Some(self.selected));
-        let render_area = if self.filtering {
+        let render_area = if self.filtering || self.refresh_flash > 0 {
             Rect { height: data_area.height.saturating_sub(1), ..data_area }
         } else {
             data_area
@@ -542,6 +551,8 @@ impl SecretsManagerView {
 
         if self.filtering {
             self.render_filter(frame, area);
+        } else if self.refresh_flash > 0 {
+            self.render_refresh_flash(frame, area);
         }
     }
 
@@ -814,6 +825,23 @@ impl SecretsManagerView {
             Span::styled("_", Style::default().fg(Color::Gray)),
         ]));
         frame.render_widget(p, filter_area);
+    }
+
+    fn render_refresh_flash(&self, frame: &mut Frame, area: Rect) {
+        let flash_area = Rect {
+            x: area.x,
+            y: area.y + area.height.saturating_sub(1),
+            width: area.width,
+            height: 1,
+        };
+        let flash_style = Style::default()
+            .fg(Color::Black)
+            .bg(Color::Rgb(204, 120, 50));
+        let mut text = " ✓ Refreshed".to_string();
+        let pad = (flash_area.width as usize).saturating_sub(text.len());
+        text.push_str(&" ".repeat(pad));
+        let p = Paragraph::new(Span::styled(text, flash_style));
+        frame.render_widget(p, flash_area);
     }
 }
 

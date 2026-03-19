@@ -66,6 +66,7 @@ pub struct S3View {
     detail_total_lines: u16,
     sort_column: SortColumn,
     sort_dir: SortDir,
+    pub refresh_flash: u8,
 }
 
 impl Default for S3View {
@@ -90,6 +91,7 @@ impl Default for S3View {
             detail_total_lines: 0,
             sort_column: SortColumn::Name,
             sort_dir: SortDir::Asc,
+            refresh_flash: 0,
         }
     }
 }
@@ -437,11 +439,9 @@ impl ServiceComponent for S3View {
                 self.selected = 0;
             }
             KeyCode::Char('r') => {
-                if self.error.is_some() {
-                    self.loading = true;
-                    self.error = None;
-                    return Some(Action::ServiceBack);
-                }
+                self.loading = true;
+                self.error = None;
+                return Some(Action::Refresh);
             }
             KeyCode::Char('/') => {
                 self.filtering = true;
@@ -463,6 +463,9 @@ impl ServiceComponent for S3View {
     }
 
     fn render(&mut self, frame: &mut Frame, area: Rect) {
+        if self.refresh_flash > 0 {
+            self.refresh_flash -= 1;
+        }
         match self.screen {
             S3Screen::Buckets => self.render_buckets(frame, area),
             S3Screen::Objects => self.render_objects(frame, area),
@@ -579,7 +582,7 @@ impl S3View {
 
         let list = List::new(items);
         self.list_state.select(Some(self.selected));
-        let render_area = if self.filtering {
+        let render_area = if self.filtering || self.refresh_flash > 0 {
             Rect { height: data_area.height.saturating_sub(1), ..data_area }
         } else {
             data_area
@@ -588,6 +591,8 @@ impl S3View {
 
         if self.filtering {
             self.render_filter(frame, area);
+        } else if self.refresh_flash > 0 {
+            self.render_refresh_flash(frame, area);
         }
     }
 
@@ -711,7 +716,7 @@ impl S3View {
 
         let list = List::new(items);
         self.list_state.select(Some(self.selected));
-        let render_area = if self.filtering {
+        let render_area = if self.filtering || self.refresh_flash > 0 {
             Rect { height: data_area.height.saturating_sub(1), ..data_area }
         } else {
             data_area
@@ -720,6 +725,8 @@ impl S3View {
 
         if self.filtering {
             self.render_filter(frame, area);
+        } else if self.refresh_flash > 0 {
+            self.render_refresh_flash(frame, area);
         }
     }
 
@@ -908,6 +915,23 @@ impl S3View {
             Span::styled("_", Style::default().fg(Color::Gray)),
         ]));
         frame.render_widget(p, filter_area);
+    }
+
+    fn render_refresh_flash(&self, frame: &mut Frame, area: Rect) {
+        let flash_area = Rect {
+            x: area.x,
+            y: area.y + area.height.saturating_sub(1),
+            width: area.width,
+            height: 1,
+        };
+        let flash_style = Style::default()
+            .fg(Color::Black)
+            .bg(Color::Rgb(204, 120, 50));
+        let mut text = " ✓ Refreshed".to_string();
+        let pad = (flash_area.width as usize).saturating_sub(text.len());
+        text.push_str(&" ".repeat(pad));
+        let p = Paragraph::new(Span::styled(text, flash_style));
+        frame.render_widget(p, flash_area);
     }
 }
 

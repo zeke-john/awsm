@@ -578,7 +578,7 @@ impl ServiceComponent for CloudWatchView {
                     self.event_scroll = 0;
                     self.loading = true;
                     self.error = None;
-                    return Some(Action::CwRefresh);
+                    return Some(Action::Refresh);
                 }
                 _ => {
                     self.pending_g = false;
@@ -702,7 +702,7 @@ impl ServiceComponent for CloudWatchView {
             KeyCode::Char('r') => {
                 self.loading = true;
                 self.error = None;
-                return Some(Action::CwRefresh);
+                return Some(Action::Refresh);
             }
             KeyCode::Char('f') => {
                 if self.screen == CwScreen::Groups {

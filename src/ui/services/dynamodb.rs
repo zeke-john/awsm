@@ -70,6 +70,7 @@ pub struct DynamoDbView {
     // pagination
     all_pages: Vec<ScanResult>,
     current_page: usize,
+    pub refresh_flash: u8,
 }
 
 impl Default for DynamoDbView {
@@ -112,6 +113,7 @@ impl Default for DynamoDbView {
             query_filters: Vec::new(),
             all_pages: Vec::new(),
             current_page: 0,
+            refresh_flash: 0,
         }
     }
 }
@@ -773,11 +775,9 @@ impl ServiceComponent for DynamoDbView {
                 }
             }
             KeyCode::Char('r') => {
-                if self.error.is_some() {
-                    self.loading = true;
-                    self.error = None;
-                    return Some(Action::ServiceBack);
-                }
+                self.loading = true;
+                self.error = None;
+                return Some(Action::Refresh);
             }
             KeyCode::Char('/') => {
                 self.filtering = true;
@@ -841,6 +841,9 @@ impl ServiceComponent for DynamoDbView {
     }
 
     fn render(&mut self, frame: &mut Frame, area: Rect) {
+        if self.refresh_flash > 0 {
+            self.refresh_flash -= 1;
+        }
         match self.screen {
             DdbScreen::Tables => self.render_tables(frame, area),
             DdbScreen::Items => self.render_items(frame, area),
@@ -1003,7 +1006,7 @@ impl DynamoDbView {
 
         let list = List::new(items);
         self.tables_list_state.select(Some(self.selected));
-        let render_area = if self.filtering {
+        let render_area = if self.filtering || self.refresh_flash > 0 {
             Rect {
                 height: data_area.height.saturating_sub(1),
                 ..data_area
@@ -1015,6 +1018,8 @@ impl DynamoDbView {
 
         if self.filtering {
             self.render_filter(frame, area);
+        } else if self.refresh_flash > 0 {
+            self.render_refresh_flash(frame, area);
         }
     }
 
@@ -1424,6 +1429,8 @@ impl DynamoDbView {
 
         if self.filtering {
             self.render_filter(frame, info_area);
+        } else if self.refresh_flash > 0 {
+            self.render_refresh_flash(frame, info_area);
         }
 
         if self.index_picker_open {
@@ -2084,6 +2091,23 @@ impl DynamoDbView {
             Span::styled("_", Style::default().fg(Color::Gray)),
         ]));
         frame.render_widget(p, filter_area);
+    }
+
+    fn render_refresh_flash(&self, frame: &mut Frame, area: Rect) {
+        let flash_area = Rect {
+            x: area.x,
+            y: area.y + area.height.saturating_sub(1),
+            width: area.width,
+            height: 1,
+        };
+        let flash_style = Style::default()
+            .fg(Color::Black)
+            .bg(Color::Rgb(204, 120, 50));
+        let mut text = " ✓ Refreshed".to_string();
+        let pad = (flash_area.width as usize).saturating_sub(text.len());
+        text.push_str(&" ".repeat(pad));
+        let p = Paragraph::new(Span::styled(text, flash_style));
+        frame.render_widget(p, flash_area);
     }
 }
 

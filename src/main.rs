@@ -243,8 +243,8 @@ async fn main() -> anyhow::Result<()> {
                                     (Service::CloudWatch, Action::CwNextPage) => {
                                         handle_cw_next_page(&mut app).await;
                                     }
-                                    (Service::CloudWatch, Action::CwRefresh) => {
-                                        handle_cw_refresh(&mut app).await;
+                                    (_, Action::Refresh) => {
+                                        handle_refresh(&mut app).await;
                                     }
                                     (Service::CloudWatch, Action::CwRunSearch) => {
                                         handle_cw_search(&mut app).await;
@@ -405,6 +405,115 @@ async fn handle_cw_enter(app: &mut App) {
     }
 }
 
+async fn handle_refresh(app: &mut App) {
+    match app.active_service {
+        Service::S3 => handle_s3_refresh(app).await,
+        Service::DynamoDB => handle_ddb_refresh(app).await,
+        Service::Lambda => handle_lambda_refresh(app).await,
+        Service::CloudWatch => handle_cw_refresh(app).await,
+        Service::SecretsManager => handle_secrets_refresh(app).await,
+    }
+}
+
+async fn handle_s3_refresh(app: &mut App) {
+    match app.s3_view.screen_type() {
+        "buckets" => {
+            if let Some(ref aws) = app.aws {
+                match aws::s3::list_buckets(&aws.s3).await {
+                    Ok(buckets) => {
+                        app.s3_view.set_buckets(buckets);
+                        app.s3_view.refresh_flash = 6;
+                    }
+                    Err(e) => app.s3_view.set_error(e),
+                }
+            }
+        }
+        "objects" => {
+            let bucket = app.s3_view.current_bucket().to_string();
+            let prefix = app.s3_view.current_prefix().to_string();
+            if let Some(ref aws) = app.aws {
+                match aws::s3::list_objects(&aws.s3, &bucket, &prefix).await {
+                    Ok(objects) => {
+                        app.s3_view.set_objects(objects);
+                        app.s3_view.refresh_flash = 6;
+                    }
+                    Err(e) => app.s3_view.set_error(e),
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+async fn handle_ddb_refresh(app: &mut App) {
+    match app.dynamodb_view.screen_type() {
+        "tables" => {
+            if let Some(ref aws) = app.aws {
+                match aws::dynamodb::list_tables(&aws.dynamodb).await {
+                    Ok(tables) => {
+                        app.dynamodb_view.set_tables(tables);
+                        app.dynamodb_view.refresh_flash = 6;
+                    }
+                    Err(e) => app.dynamodb_view.set_error(e),
+                }
+            }
+        }
+        "items" => {
+            let table = app.dynamodb_view.active_table.clone();
+            let index = app.dynamodb_view.active_index.clone();
+            if let Some(ref aws) = app.aws {
+                match aws::dynamodb::scan_table(
+                    &aws.dynamodb,
+                    &table,
+                    index.as_deref(),
+                    300,
+                    None,
+                    None,
+                )
+                .await
+                {
+                    Ok(result) => {
+                        app.dynamodb_view.set_items(result);
+                        app.dynamodb_view.refresh_flash = 6;
+                    }
+                    Err(e) => app.dynamodb_view.set_error(e),
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+async fn handle_lambda_refresh(app: &mut App) {
+    match app.lambda_view.screen_type() {
+        "functions" => {
+            if let Some(ref aws) = app.aws {
+                match aws::lambda::list_functions(&aws.lambda).await {
+                    Ok(functions) => {
+                        app.lambda_view.set_functions(functions);
+                        app.lambda_view.refresh_flash = 6;
+                    }
+                    Err(e) => app.lambda_view.set_error(e),
+                }
+            }
+        }
+        "detail" => {
+            if let Some(func) = app.lambda_view.selected_function().cloned() {
+                if let Some(ref aws) = app.aws {
+                    match aws::lambda::get_function_detail(&aws.lambda, &func.name).await {
+                        Ok(detail) => {
+                            app.lambda_view.set_detail(detail);
+                            app.lambda_view.refresh_flash = 6;
+                        }
+                        Err(e) => app.lambda_view.set_error(e),
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 async fn handle_cw_refresh(app: &mut App) {
     match app.cloudwatch_view.screen_type() {
         "groups" => {
@@ -447,6 +556,36 @@ async fn handle_cw_refresh(app: &mut App) {
                         app.cloudwatch_view.refresh_flash = 6;
                     }
                     Err(e) => app.cloudwatch_view.set_error(e),
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+async fn handle_secrets_refresh(app: &mut App) {
+    match app.secrets_view.screen_type() {
+        "list" => {
+            if let Some(ref aws) = app.aws {
+                match aws::secrets::list_secrets(&aws.secrets).await {
+                    Ok(secrets) => {
+                        app.secrets_view.set_secrets(secrets);
+                        app.secrets_view.refresh_flash = 6;
+                    }
+                    Err(e) => app.secrets_view.set_error(e),
+                }
+            }
+        }
+        "detail" => {
+            if let Some(secret) = app.secrets_view.selected_secret().cloned() {
+                if let Some(ref aws) = app.aws {
+                    match aws::secrets::get_secret_detail(&aws.secrets, &secret.name).await {
+                        Ok(detail) => {
+                            app.secrets_view.set_detail(detail);
+                            app.secrets_view.refresh_flash = 6;
+                        }
+                        Err(e) => app.secrets_view.set_error(e),
+                    }
                 }
             }
         }

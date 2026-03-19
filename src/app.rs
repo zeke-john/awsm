@@ -31,7 +31,7 @@ pub enum Action {
     DdbRunQuery,
     CwLoadEvents,
     CwNextPage,
-    CwRefresh,
+    Refresh,
     CwRunSearch,
     CwRunInsights,
     CwSearchNextPage,
@@ -177,7 +177,7 @@ impl App {
             Action::ServiceEnter | Action::ServiceBack
             | Action::S3Download | Action::S3CopyUri | Action::S3CopyArn
             | Action::DdbNextPage | Action::DdbSwitchIndex | Action::DdbRunQuery
-            | Action::CwLoadEvents | Action::CwNextPage | Action::CwRefresh
+            | Action::CwLoadEvents | Action::CwNextPage | Action::Refresh
             | Action::CwRunSearch | Action::CwRunInsights | Action::CwSearchNextPage
             | Action::None => {}
         }
